@@ -22,7 +22,7 @@ dependencies:
   shared_preferences: ^2.5.6
 
   # Локальные треки с телефона
-  on_audio_query: ^2.9.0
+  on_audio_query_pluse: ^3.0.7
   permission_handler: ^13.0.2
 
   # Обложки с кэшированием

@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:on_audio_query_pluse/on_audio_query.dart';
 
 import '../models/track.dart';
 
