@@ -15,6 +15,7 @@ import 'providers/library_provider.dart';
 import 'providers/player_provider.dart';
 import 'providers/search_provider.dart';
 import 'services/audio_player_handler.dart';
+import 'services/full_track_resolver.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -62,6 +63,10 @@ Future<void> main() async {
         ),
         ChangeNotifierProvider<SearchProvider>(
           create: (_) => SearchProvider(searchApi, libraryRepo),
+        ),
+        Provider<FullTrackResolver>(
+          create: (_) => FullTrackResolver(),
+          dispose: (_, resolver) => resolver.dispose(),
         ),
       ],
       child: const VerdeApp(),

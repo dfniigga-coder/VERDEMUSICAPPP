@@ -8,6 +8,7 @@ import '../providers/library_provider.dart';
 import '../providers/player_provider.dart';
 import 'artwork.dart';
 import 'dialogs.dart';
+import 'full_track_button.dart';
 
 /// Bottom-меню действий над треком: очередь, лайк, плейлисты.
 Future<void> showTrackMenu(
@@ -61,6 +62,22 @@ Future<void> showTrackMenu(
                 ],
               ),
             ),
+            if (track.isPreview)
+              ListTile(
+                leading: const Icon(
+                  Icons.play_circle_outline,
+                  color: AppTheme.accentGreen,
+                ),
+                title: const Text('Слушать полностью'),
+                subtitle: const Text(
+                  'SoundCloud / YouTube',
+                  style: TextStyle(fontSize: 12),
+                ),
+                onTap: () {
+                  navigator.pop();
+                  playFullTrack(context, track);
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.playlist_play),
               title: const Text('Слушать следующим'),
@@ -90,9 +107,11 @@ Future<void> showTrackMenu(
               onTap: () {
                 navigator.pop();
                 sheetContext.read<LibraryProvider>().toggleLike(track);
-                sendSnack(isLiked
-                    ? 'Убрано из «Мне нравится»'
-                    : 'Добавлено в «Мне нравится»');
+                sendSnack(
+                  isLiked
+                      ? 'Убрано из «Мне нравится»'
+                      : 'Добавлено в «Мне нравится»',
+                );
               },
             ),
             ListTile(
@@ -134,9 +153,11 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Track track) async {
           void feedback(bool added, String playlistName) {
             messenger.showSnackBar(
               SnackBar(
-                content: Text(added
-                    ? 'Добавлено в "$playlistName"'
-                    : 'Трек уже есть в плейлисте'),
+                content: Text(
+                  added
+                      ? 'Добавлено в "$playlistName"'
+                      : 'Трек уже есть в плейлисте',
+                ),
               ),
             );
           }

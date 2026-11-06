@@ -21,6 +21,9 @@ class AppConstants {
   /// Таймаут одного источника при мультипоиске, с.
   static const int searchTimeoutSeconds = 8;
 
+  /// Таймаут поиска/резолва полной версии трека (SoundCloud, YouTube), с.
+  static const int fullTrackTimeoutSeconds = 7;
+
   /// Сколько треков в подборках на главной.
   static const int trendingLimit = 30;
 

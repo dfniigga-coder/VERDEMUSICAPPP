@@ -101,6 +101,30 @@ class AudioPlayerHandler extends BaseAudioHandler
     await _player.insertAudioSource(insertAt, _sourceFor(track));
   }
 
+  /// Заменяет превью на полную версию в текущей очереди и запускает её.
+  ///
+  /// Если исходного трека в очереди нет (например, нажали «Слушать полностью»
+  /// в результатах поиска), играет полную версию отдельной очередью.
+  Future<void> playResolvedTrack(Track original, Track resolved) async {
+    final index = _tracks.indexWhere((track) => track.id == original.id);
+    if (index < 0) {
+      await playTracks([resolved]);
+      return;
+    }
+
+    _tracks[index] = resolved;
+    final sources = <AudioSource>[
+      for (final track in _tracks) _sourceFor(track),
+    ];
+    await _player.setAudioSources(
+      sources,
+      initialIndex: index,
+      initialPosition: Duration.zero,
+    );
+    _updateCurrentMediaItem(index);
+    await _player.play();
+  }
+
   /// Убирает трек из очереди. Текущий трек удалить нельзя.
   Future<void> removeFromQueue(int index) async {
     final current = _player.currentIndex ?? -1;
@@ -213,6 +237,12 @@ class AudioPlayerHandler extends BaseAudioHandler
   // --- Вспомогательное -----------------------------------------------------
 
   AudioSource _sourceFor(Track track) {
+    if (track.source == TrackSource.youtube) {
+      throw const TrackLoadException(
+        'YouTube-треки играет встроенный плеер, а не just_audio.',
+      );
+    }
+
     if (track.isAudius) {
       return AudioSource.uri(Uri.parse(_musicRepo.streamUrlFor(track)));
     }

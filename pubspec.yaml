@@ -31,6 +31,19 @@ dependencies:
   # Обложки с кэшированием
   cached_network_image: ^4.0.6
 
+  # Полные треки: SoundCloud (поиск + stream URL без ручного client_id).
+  # Пакет использует внутренний api-v2.soundcloud.com и сам добывает client_id.
+  soundcloud_explode_dart: ^1.1.0
+
+  # Полные треки: официальный YouTube iFrame Player API.
+  # Выбран youtube_player_iframe, а не youtube_player_flutter: он легче,
+  # не требует API-ключа и даёт прямой доступ к контроллеру (pause/close),
+  # чего достаточно для остановки видео при уходе приложения в фон.
+  youtube_player_iframe: ^6.0.2
+
+  # Открыть поиск/видео на YouTube, если videoId не удалось распарсить.
+  url_launcher: ^6.3.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

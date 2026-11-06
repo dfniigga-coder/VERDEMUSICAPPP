@@ -1,7 +1,17 @@
 import 'dart:convert';
 
 /// Источник воспроизведения трека.
-enum TrackSource { audius, deezer, itunes, jamendo, archive, external, local }
+enum TrackSource {
+  audius,
+  deezer,
+  itunes,
+  jamendo,
+  archive,
+  external,
+  local,
+  soundcloud,
+  youtube,
+}
 
 extension TrackSourceInfo on TrackSource {
   String get label {
@@ -20,6 +30,10 @@ extension TrackSourceInfo on TrackSource {
         return 'Ссылка';
       case TrackSource.local:
         return 'Файл';
+      case TrackSource.soundcloud:
+        return 'SoundCloud (полный)';
+      case TrackSource.youtube:
+        return 'YouTube (полный)';
     }
   }
 }
@@ -173,6 +187,8 @@ class Track {
       case TrackSource.itunes:
       case TrackSource.jamendo:
       case TrackSource.archive:
+      case TrackSource.soundcloud:
+      case TrackSource.youtube:
         return '${source.name}:${externalId ?? streamUrl ?? title}';
     }
   }

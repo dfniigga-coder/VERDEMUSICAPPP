@@ -176,6 +176,10 @@ IconData _sourceIcon(TrackSource source) {
       return Icons.link;
     case TrackSource.local:
       return Icons.folder;
+    case TrackSource.soundcloud:
+      return Icons.cloud;
+    case TrackSource.youtube:
+      return Icons.smart_display;
   }
 }
 

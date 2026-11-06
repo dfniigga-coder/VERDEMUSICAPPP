@@ -121,6 +121,38 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
+  /// Пауза нужна YouTube-плееру, чтобы не было наложения звука.
+  Future<void> pause() async {
+    try {
+      await _handler.pause();
+    } catch (e) {
+      errorNotifier.value = 'Не удалось поставить трек на паузу.';
+    }
+  }
+
+  /// Возобновление обычного плеера после закрытия YouTube.
+  Future<void> resume() async {
+    try {
+      await _handler.play();
+    } catch (e) {
+      errorNotifier.value = 'Не удалось возобновить воспроизведение.';
+    }
+  }
+
+  /// Подменяет превью на полную версию в существующей очереди и играет её.
+  ///
+  /// Возвращает `false`, если запуск не удался: UI не должен показывать
+  /// сообщение об успехе в этом случае.
+  Future<bool> playResolvedTrack(Track original, Track resolved) async {
+    try {
+      await _handler.playResolvedTrack(original, resolved);
+      return true;
+    } catch (e) {
+      errorNotifier.value = 'Не удалось включить полную версию.';
+      return false;
+    }
+  }
+
   Future<void> next() => _handler.skipToNext();
 
   Future<void> previous() => _handler.skipToPrevious();

@@ -8,6 +8,7 @@ import '../../data/models/track.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/search_provider.dart';
 import '../../widgets/common.dart';
+import '../../widgets/full_track_button.dart';
 import '../../widgets/track_tile.dart';
 
 /// Мультиисточниковый поиск: Deezer, iTunes, Audius, Jamendo, Archive.
@@ -189,7 +190,13 @@ class _ResultsList extends StatelessWidget {
         return TrackTile(
           track: track,
           onTap: () => onPlay(results, index),
-          trailing: LikeButton(track: track),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (track.isPreview) FullTrackButton(track: track),
+              LikeButton(track: track),
+            ],
+          ),
         );
       },
     );
