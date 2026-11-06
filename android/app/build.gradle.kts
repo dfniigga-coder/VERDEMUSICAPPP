@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "com.verde.music"
-    compileSdk = flutter.compileSdkVersion
+    // permission_handler_android 14.1.x собирается против SDK 37.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
