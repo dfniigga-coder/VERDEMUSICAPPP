@@ -6,16 +6,22 @@
 
 ## Источники музыки (только легальные)
 
-- **Audius API** — публичный каталог независимых артистов. Ключ API **не нужен**:
-  хост выбирается через bootstrap-адрес `api.audius.co`.
-- **Локальные аудиофайлы** с телефона (`on_audio_query`).
+- **Audius API** — публичный каталог независимых артистов, полные треки.
+  Ключ API **не нужен**: хост выбирается через `api.audius.co` с fallback.
+- **Deezer** и **iTunes Search API** — легальные 30-секундные превью.
+- **Jamendo** — полные треки; нужен бесплатный `client_id` в настройках.
+- **Internet Archive** — полные аудиозаписи с `mediatype:audio`.
+- **Локальные аудиофайлы** с телефона (`on_audio_query`), выбранные вручную
+  файлы (`file_picker`) и прямые ссылки на MP3.
 
 ## Возможности
 
 - Нижняя навигация: Главная / Поиск / Библиотека
 - Главная: популярные треки (неделя), андеграунд и подборки Audius;
   кэш в shared_preferences — работает офлайн
-- Поиск по названию и исполнителю + недавние запросы
+- Поиск сразу по Deezer, iTunes, Audius, Jamendo и Internet Archive:
+  параллельные запросы с таймаутом 8 с, дебаунс 400 мс, чипы
+  «Все / Полные / Превью», бейджи источников и недавние запросы
 - Плеер: play/pause, next/prev, перемотка, громкость, shuffle,
   repeat (off / все / трек)
 - Мини-плеер с прогрессом; тап открывает полноэкранный плеер
@@ -23,7 +29,8 @@
 - Очередь воспроизведения: «играть следующим», «в конец очереди»,
   удаление и очистка
 - Библиотека: лайки, плейлисты (создать / переименовать / удалить /
-  добавить треки из поиска или с телефона), локальные треки
+  добавить треки из поиска или с телефона), «Мои треки», добавление
+  файла и прямой ссылки, настройки Jamendo `client_id`
 - Фоновое воспроизведение и медиа-уведомление с кнопками
   (just_audio + audio_service, media3 session)
 - Обработка ошибок: нет сети (оформленный ErrorView + кэш), трек не
@@ -37,9 +44,9 @@
 | UI | Flutter, Material 3, тёмная тема, SeedColor `#1DB954` |
 | Аудио | `just_audio` (playlist API 0.10), `audio_service` 0.18 |
 | Состояние | `provider` |
-| Сеть | `http` |
+| Сеть | `http` (Deezer, iTunes, Audius, Jamendo, Internet Archive) |
 | Хранение | `shared_preferences` |
-| Локальные треки | `on_audio_query`, `permission_handler` |
+| Локальные треки | `on_audio_query`, `permission_handler`, `file_picker` |
 | Обложки | `cached_network_image` |
 
 ## Структура
@@ -50,11 +57,12 @@ lib/
   core/                          # тема, константы, ошибки, форматтеры
   data/
     api/audius_api.dart          # клиент Audius (bootstrap → discovery)
+    api/search_api.dart          # параллельный мультипоиск и нормализация
     models/                      # Track, Playlist, Collection
     repositories/                # музыка/кэш, библиотека, локальные треки
   providers/                     # PlayerProvider, LibraryProvider, SearchProvider
   services/audio_player_handler.dart  # BaseAudioHandler: очередь, уведомление
-  screens/                       # home, search, library, player, root_shell
+  screens/                       # home, search, library, settings, player
   widgets/                       # мини-плеер, очередь, меню, artwork...
 android/app/src/main/
   AndroidManifest.xml            # разрешения + audio_service service/receiver

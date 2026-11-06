@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
 import 'data/api/audius_api.dart';
+import 'data/api/search_api.dart';
 import 'data/repositories/library_repository.dart';
 import 'data/repositories/local_tracks_repository.dart';
 import 'data/repositories/music_repository.dart';
@@ -23,8 +24,10 @@ Future<void> main() async {
 
   // 2. База данных + репозитории
   final libraryRepo = LibraryRepository(prefs)..load();
-  final musicRepo = MusicRepository(AudiusApi(prefs), prefs);
-  final localTracksRepo = LocalTracksRepository(OnAudioQuery());
+  final audiusApi = AudiusApi(prefs);
+  final musicRepo = MusicRepository(audiusApi, prefs);
+  final searchApi = SearchApi(audiusApi, prefs);
+  final localTracksRepo = LocalTracksRepository(OnAudioQuery(), prefs);
 
   // 3. Разрешение на постоянные уведомления (Android 13+) — фон-плеер?
   await _requestNotificationPermission();
@@ -45,9 +48,12 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
+        Provider<SharedPreferences>.value(value: prefs),
         Provider<MusicRepository>.value(value: musicRepo),
         Provider<LibraryRepository>.value(value: libraryRepo),
-        Provider<LocalTracksRepository>.value(value: localTracksRepo),
+        ChangeNotifierProvider<LocalTracksRepository>.value(
+          value: localTracksRepo,
+        ),
         ChangeNotifierProvider<PlayerProvider>(
           create: (_) => PlayerProvider(audioHandler),
         ),
@@ -55,7 +61,7 @@ Future<void> main() async {
           create: (_) => LibraryProvider(libraryRepo),
         ),
         ChangeNotifierProvider<SearchProvider>(
-          create: (_) => SearchProvider(musicRepo, libraryRepo),
+          create: (_) => SearchProvider(searchApi, libraryRepo),
         ),
       ],
       child: const VerdeApp(),

@@ -10,7 +10,7 @@ import '../../providers/search_provider.dart';
 import '../../widgets/common.dart';
 import '../../widgets/track_tile.dart';
 
-/// Поиск по трекам Audius (название и исполнитель).
+/// Мультиисточниковый поиск: Deezer, iTunes, Audius, Jamendo, Archive.
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
 
@@ -41,6 +41,8 @@ class _SearchScreenState extends State<SearchScreen> {
   void _onChanged() {
     _debounce?.cancel();
     final query = _controller.text.trim();
+    if (mounted) setState(() {});
+
     if (query.isEmpty) {
       context.read<SearchProvider>().search('');
       return;
@@ -64,6 +66,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<SearchProvider>();
+    final hasQuery = _controller.text.trim().isNotEmpty;
 
     return Scaffold(
       body: SafeArea(
@@ -92,6 +95,9 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
               ),
             ),
+            if (hasQuery) _FilterBar(provider: provider),
+            if (provider.loading && provider.results != null)
+              const LinearProgressIndicator(minHeight: 2),
             Expanded(child: _body(provider)),
           ],
         ),
@@ -100,8 +106,8 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _body(SearchProvider provider) {
-    if (provider.loading && (provider.results == null)) {
-      return const LoadingView(message: 'Ищем…');
+    if (provider.loading && provider.results == null) {
+      return const LoadingView(message: 'Ищем во всех источниках…');
     }
     if (provider.error != null) {
       return ErrorView(
@@ -118,17 +124,49 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     }
     if (!provider.hasResults) {
-      return const EmptyState(
+      return EmptyState(
         icon: Icons.search_off,
-        title: 'Ничего не нашлось',
-        subtitle: 'Попробуйте другой запрос',
+        title: 'Ничего не найдено',
+        subtitle: provider.emptySubtitle,
       );
     }
+    final results = provider.visibleResults;
     return _ResultsList(
-      results: provider.results!,
+      results: results,
       onPlay: (tracks, index) {
         context.read<PlayerProvider>().playTracks(tracks, startIndex: index);
       },
+    );
+  }
+}
+
+/// Чипы фильтра: все треки, только полные, только превью.
+class _FilterBar extends StatelessWidget {
+  final SearchProvider provider;
+
+  const _FilterBar({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Row(
+        children: [
+          for (final filter in SearchFilter.values)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                label: Text(filter.label),
+                selected: provider.filter == filter,
+                showCheckmark: false,
+                selectedColor: AppTheme.accentGreen.withValues(alpha: 0.18),
+                onSelected: (_) =>
+                    context.read<SearchProvider>().setFilter(filter),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -173,7 +211,9 @@ class _RecentSearches extends StatelessWidget {
       return const EmptyState(
         icon: Icons.tips_and_updates_outlined,
         title: 'Что послушаем?',
-        subtitle: 'Поиск по трекам Audius — бесплатные официальные релизы',
+        subtitle:
+            'Deezer, iTunes, Audius, Jamendo и Internet Archive — '
+            'в одном поиске',
       );
     }
 

@@ -1,7 +1,10 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:on_audio_query_pluse/on_audio_query.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/constants.dart';
 import '../models/track.dart';
 
 /// Снимок локальных треков для UI.
@@ -9,7 +12,7 @@ class LocalTracksResult {
   /// false — пользователь не дал разрешение на чтение звука.
   final bool hasPermission;
 
-  /// true — разрешение дано, но на устройстве нет музыки.
+  /// true — разрешение дано, но треков нет.
   final bool isEmpty;
 
   final List<Track> tracks;
@@ -24,33 +27,60 @@ class LocalTracksResult {
       const LocalTracksResult(hasPermission: false, isEmpty: false, tracks: []);
 
   factory LocalTracksResult.loaded(List<Track> tracks) => LocalTracksResult(
-        hasPermission: true,
-        isEmpty: tracks.isEmpty,
-        tracks: tracks,
-      );
+    hasPermission: true,
+    isEmpty: tracks.isEmpty,
+    tracks: tracks,
+  );
 }
 
-/// Локальные аудиофайлы с телефона (on_audio_query).
-class LocalTracksRepository {
-  LocalTracksRepository(this._onAudioQuery);
+/// Локальная библиотека: музыка из медиатеки (on_audio_query),
+/// файлы, выбранные через file_picker, и прямые ссылки пользователя.
+class LocalTracksRepository extends ChangeNotifier {
+  LocalTracksRepository(this._onAudioQuery, this._prefs) {
+    _loadSaved();
+  }
 
   final OnAudioQuery _onAudioQuery;
+  final SharedPreferences _prefs;
 
   List<Track> _cached = const [];
+  final List<Track> _saved = [];
 
-  /// Кэш последней успешной загрузки — используется для счётчика в библиотеке.
-  List<Track> get cached => List.unmodifiable(_cached);
+  /// Треки, добавленные вручную: файлы и прямые ссылки.
+  List<Track> get saved => List.unmodifiable(_saved);
 
-  bool get hasLoaded => _cached.isNotEmpty;
+  /// Всё, что показываем в «Моих треках»: добавленное + медиатека.
+  List<Track> get cached {
+    final savedPaths = _saved
+        .map((track) => track.localPath)
+        .whereType<String>()
+        .toSet();
+    return List.unmodifiable([
+      ..._saved,
+      ..._cached.where((track) {
+        final path = track.localPath;
+        return path == null || !savedPaths.contains(path);
+      }),
+    ]);
+  }
+
+  bool get hasLoaded => _cached.isNotEmpty || _saved.isNotEmpty;
 
   /// Проверяет разрешение и запрашивает его при необходимости.
   Future<bool> ensurePermission({bool retryRequest = false}) async {
     return _onAudioQuery.checkAndRequest(retryRequest: retryRequest);
   }
 
-  Future<LocalTracksResult> loadTracks() async {
-    final hasPermission = await ensurePermission();
-    if (!hasPermission) return LocalTracksResult.noPermission();
+  Future<LocalTracksResult> loadTracks({bool retryRequest = false}) async {
+    final hasPermission = await ensurePermission(retryRequest: retryRequest);
+    if (!hasPermission) {
+      notifyListeners();
+      return LocalTracksResult(
+        hasPermission: false,
+        isEmpty: _saved.isEmpty,
+        tracks: List.unmodifiable(_saved),
+      );
+    }
 
     final songs = await _onAudioQuery.querySongs(
       sortType: SongSortType.TITLE,
@@ -59,13 +89,58 @@ class LocalTracksRepository {
       ignoreCase: true,
     );
 
-    final tracks = <Track>[];
+    final scanned = <Track>[];
     for (final song in songs) {
       final mapped = _mapSong(song);
-      if (mapped != null) tracks.add(mapped);
+      if (mapped != null) scanned.add(mapped);
     }
-    _cached = tracks;
-    return LocalTracksResult.loaded(tracks);
+    _cached = scanned;
+    notifyListeners();
+
+    return LocalTracksResult.loaded(cached);
+  }
+
+  /// Добавляет выбранные вручную файлы. Возвращает число новых треков.
+  Future<int> addFiles(List<String> paths) async {
+    final existing = _saved.map((track) => track.id).toSet();
+    var added = 0;
+
+    for (final rawPath in paths) {
+      final path = rawPath.trim();
+      if (path.isEmpty) continue;
+
+      final track = _trackFromPath(path);
+      if (existing.contains(track.id)) continue;
+
+      _saved.add(track);
+      existing.add(track.id);
+      added++;
+    }
+
+    if (added > 0) {
+      await _persistSaved();
+      notifyListeners();
+    }
+    return added;
+  }
+
+  /// Добавляет прямую ссылку на MP3. false — ссылка уже есть в библиотеке.
+  Future<bool> addStreamUrl(String url) async {
+    final clean = url.trim();
+    final uri = Uri.tryParse(clean);
+    if (uri == null ||
+        !(uri.scheme == 'http' || uri.scheme == 'https') ||
+        uri.host.isEmpty) {
+      return false;
+    }
+
+    final track = Track.external(url: clean, title: _titleFromUrl(uri));
+    if (_saved.any((item) => item.id == track.id)) return false;
+
+    _saved.add(track);
+    await _persistSaved();
+    notifyListeners();
+    return true;
   }
 
   Track? _mapSong(SongModel song) {
@@ -73,9 +148,11 @@ class LocalTracksRepository {
       final path = song.data;
       if (path.isEmpty) return null;
 
-      final title = song.title.trim().isEmpty ? 'Без названия' : song.title;
+      final rawTitle = song.title.trim();
+      final title = rawTitle.isEmpty ? 'Без названия' : rawTitle;
       final artist = song.artist;
-      final cleanArtist = (artist == null ||
+      final cleanArtist =
+          (artist == null ||
               artist.trim().isEmpty ||
               artist.trim() == '<unknown>')
           ? 'Неизвестный исполнитель'
@@ -92,6 +169,66 @@ class LocalTracksRepository {
       );
     } catch (_) {
       return null;
+    }
+  }
+
+  Track _trackFromPath(String path) {
+    var name = path.split('/').last;
+    name = name.replaceAll(RegExp(r'\.[a-zA-Z0-9]{2,5}$'), '').trim();
+
+    var artist = 'Файл на устройстве';
+    var title = name;
+
+    final separator = name.indexOf(' - ');
+    if (separator > 0) {
+      artist = name.substring(0, separator).trim();
+      title = name.substring(separator + 3).trim();
+    }
+
+    if (title.isEmpty) title = name.isEmpty ? 'Аудиофайл' : name;
+    if (artist.isEmpty) artist = 'Файл на устройстве';
+
+    return Track.file(path: path, title: title, artist: artist);
+  }
+
+  String _titleFromUrl(Uri uri) {
+    var name = uri.pathSegments.isEmpty ? '' : uri.pathSegments.last;
+    try {
+      name = Uri.decodeComponent(name);
+    } catch (_) {
+      // Имя из URL может быть повреждено — оставляем как есть.
+    }
+    name = name
+        .replaceAll(RegExp(r'\.[a-zA-Z0-9]{2,5}$'), '')
+        .replaceAll('_', ' ')
+        .replaceAll('-', ' ')
+        .trim();
+    return name.isEmpty ? 'Трек по ссылке' : name;
+  }
+
+  void _loadSaved() {
+    try {
+      final raw = _prefs.getString(AppConstants.importedTracksKey);
+      final loaded = Track.listFromDynamic(
+        raw,
+      ).where((track) => track.isLocal || track.source == TrackSource.external);
+      _saved
+        ..clear()
+        ..addAll(loaded);
+    } catch (_) {
+      // Повреждённый список не должен ломать приложение.
+      _saved.clear();
+    }
+  }
+
+  Future<void> _persistSaved() async {
+    try {
+      await _prefs.setString(
+        AppConstants.importedTracksKey,
+        Track.encodeList(_saved),
+      );
+    } catch (_) {
+      // Хранилище не критично для воспроизведения.
     }
   }
 

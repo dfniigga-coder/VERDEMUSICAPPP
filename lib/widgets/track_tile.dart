@@ -56,12 +56,20 @@ class TrackTile extends StatelessWidget {
               style: const TextStyle(color: AppTheme.textDim, fontSize: 12),
             ),
           ),
-          if (track.isAudius && track.genre != null) ...[
+          if (track.isPreview) ...[
             const SizedBox(width: 6),
-            Text(
-              track.genre!,
-              maxLines: 1,
-              style: const TextStyle(color: AppTheme.textDim, fontSize: 11),
+            const _TrackBadge(
+              text: 'превью 30 с',
+              icon: Icons.timer_outlined,
+              foreground: Color(0xFFF0C674),
+              background: Color(0x33F0C674),
+            ),
+          ],
+          if (track.source != TrackSource.local) ...[
+            const SizedBox(width: 6),
+            _TrackBadge(
+              text: track.source.label,
+              icon: _sourceIcon(track.source),
             ),
           ],
         ],
@@ -71,10 +79,16 @@ class TrackTile extends StatelessWidget {
   }
 
   Widget _leading() {
-    if (track.isAudius) {
-      return ArtworkView(size: 52, url: track.artworkUrl);
+    if (track.source == TrackSource.local) {
+      final songId = track.localSongId;
+      if (songId != null) return _LocalLeading(songId: songId);
+      return ArtworkView(
+        size: 52,
+        url: track.artworkUrl,
+        placeholderIcon: Icons.audio_file_outlined,
+      );
     }
-    return _LocalLeading(songId: track.localSongId ?? 0);
+    return ArtworkView(size: 52, url: track.artworkUrl);
   }
 
   Widget? _duration() {
@@ -97,10 +111,71 @@ class _LocalLeading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final repo = context.read<LocalTracksRepository>();
-    return LocalArtworkView(
-      size: 52,
-      artwork: repo.artwork(songId),
+    return LocalArtworkView(size: 52, artwork: repo.artwork(songId));
+  }
+}
+
+/// Небольшой значок источника или пометка «превью».
+class _TrackBadge extends StatelessWidget {
+  final String text;
+
+  final IconData icon;
+
+  final Color foreground;
+
+  final Color background;
+
+  const _TrackBadge({
+    required this.text,
+    required this.icon,
+    this.foreground = AppTheme.textDim,
+    this.background = const Color(0x1AFFFFFF),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 10, color: foreground),
+          const SizedBox(width: 3),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 9.5,
+              height: 1.2,
+              fontWeight: FontWeight.w600,
+              color: foreground,
+            ),
+          ),
+        ],
+      ),
     );
+  }
+}
+
+IconData _sourceIcon(TrackSource source) {
+  switch (source) {
+    case TrackSource.audius:
+      return Icons.waves;
+    case TrackSource.deezer:
+      return Icons.graphic_eq;
+    case TrackSource.itunes:
+      return Icons.music_note;
+    case TrackSource.jamendo:
+      return Icons.public;
+    case TrackSource.archive:
+      return Icons.account_balance;
+    case TrackSource.external:
+      return Icons.link;
+    case TrackSource.local:
+      return Icons.folder;
   }
 }
 
@@ -112,7 +187,9 @@ class LikeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final liked = context.select<LibraryProvider, bool>((lib) => lib.isLiked(track));
+    final liked = context.select<LibraryProvider, bool>(
+      (lib) => lib.isLiked(track),
+    );
 
     return IconButton(
       onPressed: () => context.read<LibraryProvider>().toggleLike(track),

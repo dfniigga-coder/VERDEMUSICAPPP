@@ -12,15 +12,19 @@ class AppConstants {
   static const String audiusBootstrapUrl = 'https://api.audius.co';
 
   /// Fallback discovery-сервер, если bootstrap недоступен.
-  static const String audiusFallbackHost = 'https://discoveryprovider.audius.co';
+  static const String audiusFallbackHost =
+      'https://discoveryprovider.audius.co';
 
   /// Таймаут HTTP-запросов, с.
   static const int requestTimeoutSeconds = 15;
 
+  /// Таймаут одного источника при мультипоиске, с.
+  static const int searchTimeoutSeconds = 8;
+
   /// Сколько треков в подборках на главной.
   static const int trendingLimit = 30;
 
-  /// Сколько треков в выдаче поиска.
+  /// Сколько треков в выдаче поиска (на каждый источник).
   static const int searchLimit = 25;
 
   /// Сколько плейлистов Audius тянем для раздела «Подборки».
@@ -32,4 +36,6 @@ class AppConstants {
   static const String recentSearchesKey = 'verde.recent_searches';
   static const String homeCacheKey = 'verde.home_cache_v1';
   static const String audiusHostKey = 'verde.audius_host';
+  static const String jamendoClientIdKey = 'verde.jamendo_client_id';
+  static const String importedTracksKey = 'verde.imported_tracks';
 }

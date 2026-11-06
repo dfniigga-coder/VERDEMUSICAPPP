@@ -1,6 +1,7 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../core/errors/app_exceptions.dart';
 import '../data/models/track.dart';
 import '../data/repositories/music_repository.dart';
 
@@ -12,7 +13,7 @@ import '../data/repositories/music_repository.dart';
 class AudioPlayerHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
   AudioPlayerHandler(this._musicRepo)
-      : _player = AudioPlayer(maxSkipsOnError: 2) {
+    : _player = AudioPlayer(maxSkipsOnError: 2) {
     // Транслируем состояние just_audio в уведомление/клиентов.
     _player.playbackEventStream.listen(
       _broadcastState,
@@ -57,9 +58,7 @@ class AudioPlayerHandler extends BaseAudioHandler
       ..clear()
       ..addAll(tracks);
 
-    final sources = <AudioSource>[
-      for (final t in tracks) _sourceFor(t),
-    ];
+    final sources = <AudioSource>[for (final t in tracks) _sourceFor(t)];
 
     if (shuffle && !_player.shuffleModeEnabled) {
       await _player.setShuffleModeEnabled(true);
@@ -215,21 +214,31 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   AudioSource _sourceFor(Track track) {
     if (track.isAudius) {
-      return AudioSource.uri(
-        Uri.parse(_musicRepo.streamUrlFor(track)),
-      );
+      return AudioSource.uri(Uri.parse(_musicRepo.streamUrlFor(track)));
     }
-    return AudioSource.uri(Uri.file(track.localPath ?? ''));
+
+    final streamUrl = track.streamUrl;
+    if (streamUrl != null && streamUrl.isNotEmpty) {
+      return AudioSource.uri(Uri.parse(streamUrl));
+    }
+
+    final localPath = track.localPath;
+    if (localPath != null && localPath.isNotEmpty) {
+      return AudioSource.uri(Uri.file(localPath));
+    }
+
+    throw const TrackLoadException('У трека нет источника воспроизведения.');
   }
 
   MediaItem _mediaItemFor(Track track) {
     return MediaItem(
       id: track.id,
-      album: track.isAudius ? 'Audius' : 'Треки на устройстве',
+      album: track.isLocal ? 'Треки на устройстве' : track.source.label,
       title: track.title,
       artist: track.artist,
-      duration:
-          track.durationSec == null ? null : Duration(seconds: track.durationSec!),
+      duration: track.durationSec == null
+          ? null
+          : Duration(seconds: track.durationSec!),
       artUri: track.artworkUrl != null ? Uri.tryParse(track.artworkUrl!) : null,
     );
   }

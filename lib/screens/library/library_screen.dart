@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,6 +9,7 @@ import '../../providers/library_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../widgets/common.dart';
 import '../../widgets/dialogs.dart';
+import '../settings/settings_screen.dart';
 import 'liked_tracks_screen.dart';
 import 'local_tracks_screen.dart';
 import 'playlist_details_screen.dart';
@@ -28,6 +30,11 @@ class LibraryScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Библиотека'),
         actions: [
+          IconButton(
+            onPressed: () => _openSettings(context),
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Настройки',
+          ),
           IconButton(
             onPressed: () => _createPlaylist(context),
             icon: const Icon(Icons.add),
@@ -51,13 +58,27 @@ class LibraryScreen extends StatelessWidget {
           ),
           LibraryTile(
             icon: Icons.library_music,
-            title: 'Треки на устройстве',
-            subtitle: localCount == 0 ? 'Нажмите, чтобы загрузить' : trackCountLabel(localCount),
+            title: 'Мои треки',
+            subtitle: localCount == 0
+                ? 'Файлы, ссылки и музыка с телефона'
+                : trackCountLabel(localCount),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => const LocalTracksScreen(),
               ),
             ),
+          ),
+          LibraryTile(
+            icon: Icons.audio_file_outlined,
+            title: 'Добавить файл',
+            subtitle: 'Выбрать аудио с телефона',
+            onTap: () => _pickFiles(context),
+          ),
+          LibraryTile(
+            icon: Icons.link,
+            title: 'Добавить по ссылке',
+            subtitle: 'Прямая ссылка на MP3',
+            onTap: () => _addByUrl(context),
           ),
           const SizedBox(height: 12),
           Padding(
@@ -112,6 +133,78 @@ class LibraryScreen extends StatelessWidget {
       ),
     );
   }
+
+  void _openSettings(BuildContext context) {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
+  }
+
+  Future<void> _pickFiles(BuildContext context) async {
+    final repo = context.read<LocalTracksRepository>();
+    try {
+      final files = await FilePicker.pickFiles(type: FileType.audio);
+      if (files.isEmpty) return;
+
+      final paths = files
+          .map((file) => file.path)
+          .whereType<String>()
+          .where((path) => path.isNotEmpty)
+          .toList(growable: false);
+      if (paths.isEmpty) {
+        if (context.mounted) {
+          showAppSnackBar(
+            context,
+            'Не удалось получить путь к выбранным файлам',
+            isError: true,
+          );
+        }
+        return;
+      }
+
+      final added = await repo.addFiles(paths);
+      if (!context.mounted) return;
+      showAppSnackBar(
+        context,
+        added == 0
+            ? 'Эти файлы уже есть в библиотеке'
+            : 'Добавлено файлов: $added',
+      );
+    } catch (_) {
+      if (context.mounted) {
+        showAppSnackBar(context, 'Не удалось выбрать файлы', isError: true);
+      }
+    }
+  }
+
+  Future<void> _addByUrl(BuildContext context) async {
+    final url = await showTextDialog(
+      context,
+      title: 'Добавить по ссылке',
+      hintText: 'https://example.com/track.mp3',
+      positiveLabel: 'Добавить',
+    );
+    if (url == null || !context.mounted) return;
+
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        !(uri.scheme == 'http' || uri.scheme == 'https') ||
+        uri.host.isEmpty) {
+      showAppSnackBar(
+        context,
+        'Нужна прямая http(s)-ссылка на аудиофайл',
+        isError: true,
+      );
+      return;
+    }
+
+    final added = await context.read<LocalTracksRepository>().addStreamUrl(url);
+    if (!context.mounted) return;
+    showAppSnackBar(
+      context,
+      added ? 'Трек добавлен в библиотеку' : 'Эта ссылка уже добавлена',
+    );
+  }
 }
 
 class LibraryTile extends StatelessWidget {
@@ -140,10 +233,7 @@ class LibraryTile extends StatelessWidget {
       child: ListTile(
         onTap: onTap,
         leading: Icon(icon, color: iconColor ?? AppTheme.textDim, size: 28),
-        title: Text(
-          title,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text(
           subtitle,
           style: const TextStyle(color: AppTheme.textDim, fontSize: 12),
@@ -254,9 +344,10 @@ class _PlaylistRow extends StatelessWidget {
       showAppSnackBar(context, 'Плейлист пуст');
       return;
     }
-    await context
-        .read<PlayerProvider>()
-        .playTracks(playlist.tracks, startIndex: 0);
+    await context.read<PlayerProvider>().playTracks(
+      playlist.tracks,
+      startIndex: 0,
+    );
   }
 
   Future<void> _rename(BuildContext context) async {
