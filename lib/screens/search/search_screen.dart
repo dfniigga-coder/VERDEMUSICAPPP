@@ -101,7 +101,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _body(SearchProvider provider) {
     if (provider.loading && (provider.results == null)) {
-      return const LoadingView('Ищем…');
+      return const LoadingView(message: 'Ищем…');
     }
     if (provider.error != null) {
       return ErrorView(

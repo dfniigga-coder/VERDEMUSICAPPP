@@ -70,7 +70,6 @@ class AudioPlayerHandler extends BaseAudioHandler
       sources,
       initialIndex: startIndex,
       initialPosition: Duration.zero,
-      useLazyPreparation: true,
     );
 
     _updateCurrentMediaItem(startIndex);

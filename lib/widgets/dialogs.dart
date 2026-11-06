@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-/// Диалог с полем ввода. Возвращает trimmed строку или null (отмена).Future<String?> showTextDialog(
+/// Диалог с полем ввода. Возвращает trimmed строку или null (отмена).
+Future<String?> showTextDialog(
   BuildContext context, {
   required String title,
   String? initial,

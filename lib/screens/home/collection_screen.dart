@@ -82,7 +82,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
   Widget _buildBody(Collection collection) {
     if (_loading && _tracks == null) {
-      return const LoadingView('Загружаем подборку…');
+      return const LoadingView(message: 'Загружаем подборку…');
     }
     if (_error != null && _tracks == null) {
       return ErrorView(message: _error!, onRetry: _load);

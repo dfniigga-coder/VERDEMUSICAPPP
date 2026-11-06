@@ -77,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _header(),
             if (_loading && _data == null)
               const SliverFillRemaining(
-                child: LoadingView('Загружаем музыку…'),
+                child: LoadingView(message: 'Загружаем музыку…'),
               )
             else if (_error != null && _data == null)
               SliverFillRemaining(
