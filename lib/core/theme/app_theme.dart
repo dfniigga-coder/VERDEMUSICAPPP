@@ -129,7 +129,6 @@ class AppTheme {
         backgroundColor: Color(0xFF15181B),
         surfaceTintColor: Colors.transparent,
         showDragHandle: true,
-        useSafeArea: true,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),

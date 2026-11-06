@@ -161,7 +161,7 @@ class _Artwork extends StatelessWidget {
 class _SeekBar extends StatelessWidget {
   final PlayerProvider player;
 
-  const _SeekBar({super.key, required this.player});
+  const _SeekBar({required this.player});
 
   @override
   Widget build(BuildContext context) {
@@ -195,7 +195,6 @@ class _ValueSeekBar extends StatefulWidget {
   final Duration position;
 
   const _ValueSeekBar({
-    super.key,
     required this.player,
     required this.duration,
     required this.position,

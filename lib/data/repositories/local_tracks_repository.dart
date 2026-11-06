@@ -54,7 +54,7 @@ class LocalTracksRepository {
 
     final songs = await _onAudioQuery.querySongs(
       sortType: SongSortType.TITLE,
-      orderType: OrderType.ASC,
+      orderType: OrderType.ASC_OR_SMALLER,
       uriType: UriType.EXTERNAL,
       ignoreCase: true,
     );

@@ -28,7 +28,9 @@ class AudioPlayerHandler extends BaseAudioHandler
   final MusicRepository _musicRepo;
 
   /// just_audio-плеер. UI читает его стримы (позиция, длительность) напрямую.
-  final AudioPlayer player;
+  final AudioPlayer _player;
+
+  AudioPlayer get player => _player;
 
   /// Треки текущей очереди (индексы совпадают с источниками just_audio).
   final List<Track> _tracks = [];
@@ -201,18 +203,11 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   Future<void> cycleRepeat() async {
     final current = _player.loopMode;
-    final LoopMode next;
-    switch (current) {
-      case LoopMode.off:
-        next = LoopMode.all;
-        break;
-      case LoopMode.all:
-        next = LoopMode.one;
-        break;
-      case LoopMode.one:
-        next = LoopMode.off;
-        break;
-    }
+    final next = switch (current) {
+      LoopMode.off => LoopMode.all,
+      LoopMode.all => LoopMode.one,
+      _ => LoopMode.off,
+    };
     await _player.setLoopMode(next);
   }
 
