@@ -1,0 +1,35 @@
+/// Константы приложения.
+class AppConstants {
+  AppConstants._();
+
+  /// Название приложения (отображается пользователю).
+  static const String appName = 'Verde';
+
+  /// Имя приложения для Audius (требуется параметром к каждому запросу API).
+  static const String audiusAppName = 'VerdeMusic';
+
+  /// Bootstrap-адрес, у которого запрашивается список discovery-серверов.
+  static const String audiusBootstrapUrl = 'https://api.audius.co';
+
+  /// Fallback discovery-сервер, если bootstrap недоступен.
+  static const String audiusFallbackHost = 'https://discoveryprovider.audius.co';
+
+  /// Таймаут HTTP-запросов, с.
+  static const int requestTimeoutSeconds = 15;
+
+  /// Сколько треков в подборках на главной.
+  static const int trendingLimit = 30;
+
+  /// Сколько треков в выдаче поиска.
+  static const int searchLimit = 25;
+
+  /// Сколько плейлистов Audius тянем для раздела «Подборки».
+  static const int playlistsLimit = 12;
+
+  /// Ключи хранения в shared_preferences.
+  static const String likedTracksKey = 'verde.liked_tracks';
+  static const String playlistsKey = 'verde.playlists';
+  static const String recentSearchesKey = 'verde.recent_searches';
+  static const String homeCacheKey = 'verde.home_cache_v1';
+  static const String audiusHostKey = 'verde.audius_host';
+}

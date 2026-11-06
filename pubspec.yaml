@@ -1,0 +1,37 @@
+name: verde
+description: "Verde — музыкальный плеер в стиле Spotify: Audius API + локальные треки, фоновое воспроизведение."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Воспроизведение и фоновый сервис
+  just_audio: ^0.10.6
+  audio_service: ^0.18.19
+
+  # Состояние
+  provider: ^6.1.5
+
+  # Сеть и хранение
+  http: ^1.6.0
+  shared_preferences: ^2.5.6
+
+  # Локальные треки с телефона
+  on_audio_query: ^2.9.0
+  permission_handler: ^13.0.2
+
+  # Обложки с кэшированием
+  cached_network_image: ^4.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
