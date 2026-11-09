@@ -41,4 +41,14 @@ class AppConstants {
   static const String audiusHostKey = 'verde.audius_host';
   static const String jamendoClientIdKey = 'verde.jamendo_client_id';
   static const String importedTracksKey = 'verde.imported_tracks';
+
+  /// История прослушиваний для локальных рекомендаций.
+  static const String playHistoryKey = 'verde.play_history_v1';
+
+  /// Last.fm API key: можно сохранить в настройках или передать
+  /// при сборке через `--dart-define=LASTFM_API_KEY=...`.
+  static const String lastFmApiKeyKey = 'verde.lastfm_api_key';
+  static const String lastFmApiKeyFromEnv = String.fromEnvironment(
+    'LASTFM_API_KEY',
+  );
 }

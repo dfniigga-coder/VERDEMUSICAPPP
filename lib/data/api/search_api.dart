@@ -51,20 +51,40 @@ class SearchApi {
 
   static const Map<String, String> _headers = {'User-Agent': 'VerdeMusic/1.0'};
 
-  Future<SearchOutcome> search(String query) async {
+  Future<SearchOutcome> search(String query) => searchSources(query);
+
+  /// Поиск только по выбранным источникам.
+  ///
+  /// `sources == null` — все источники, как в обычном поиске. Рекомендации
+  /// передают ограниченный набор, чтобы не дёргать Audius/Archive/Jamendo
+  /// на каждый похожий трек и не упираться в rate limit.
+  Future<SearchOutcome> searchSources(
+    String query, {
+    Set<TrackSource>? sources,
+  }) async {
     final q = query.trim();
     if (q.isEmpty) return const SearchOutcome();
 
-    final futures = <Future<_SourceAttempt>>[
-      _attempt(TrackSource.audius, () => _audius.search(q)),
-      _attempt(TrackSource.deezer, () => _deezer(q)),
-      _attempt(TrackSource.itunes, () => _itunes(q)),
-      _attempt(TrackSource.archive, () => _archive(q)),
-    ];
+    bool enabled(TrackSource source) =>
+        sources == null || sources.contains(source);
+
+    final futures = <Future<_SourceAttempt>>[];
+    if (enabled(TrackSource.audius)) {
+      futures.add(_attempt(TrackSource.audius, () => _audius.search(q)));
+    }
+    if (enabled(TrackSource.deezer)) {
+      futures.add(_attempt(TrackSource.deezer, () => _deezer(q)));
+    }
+    if (enabled(TrackSource.itunes)) {
+      futures.add(_attempt(TrackSource.itunes, () => _itunes(q)));
+    }
+    if (enabled(TrackSource.archive)) {
+      futures.add(_attempt(TrackSource.archive, () => _archive(q)));
+    }
 
     final jamendoClientId =
         _prefs.getString(AppConstants.jamendoClientIdKey)?.trim() ?? '';
-    if (jamendoClientId.isNotEmpty) {
+    if (enabled(TrackSource.jamendo) && jamendoClientId.isNotEmpty) {
       futures.add(
         _attempt(TrackSource.jamendo, () => _jamendo(q, jamendoClientId)),
       );

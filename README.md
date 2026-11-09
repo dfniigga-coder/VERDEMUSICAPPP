@@ -11,17 +11,27 @@
 - **Deezer** и **iTunes Search API** — легальные 30-секундные превью.
 - **Jamendo** — полные треки; нужен бесплатный `client_id` в настройках.
 - **Internet Archive** — полные аудиозаписи с `mediatype:audio`.
+- **SoundCloud** — полные треки, если автор разрешил поток
+  (`policy` ≠ SNIP/BLOCK, `StreamInfo.isSnipped == false`). Прямой stream URL
+  проигрывает существующий just_audio, без второго `AudioPlayer`.
+- **YouTube** — только официальный IFrame-плеер для превью, у которых не
+  нашлось полной версии на SoundCloud. Аудио не извлекается и не скачивается.
 - **Локальные аудиофайлы** с телефона (`on_audio_query`), выбранные вручную
   файлы (`file_picker`) и прямые ссылки на MP3.
 
 ## Возможности
 
 - Нижняя навигация: Главная / Поиск / Библиотека
-- Главная: популярные треки (неделя), андеграунд и подборки Audius;
-  кэш в shared_preferences — работает офлайн
+- Главная в стиле YouTube Music: «Быстрый выбор», «Слушайте снова»
+  (треки, которых не было больше 3 дней), «Похоже на …» через Last.fm
+  и «Ежедневный микс» на 20 треков. Подборки строятся локально по истории,
+  лайкам и медиатеке и обновляются после каждого прослушивания.
 - Поиск сразу по Deezer, iTunes, Audius, Jamendo и Internet Archive:
   параллельные запросы с таймаутом 8 с, дебаунс 400 мс, чипы
   «Все / Полные / Превью», бейджи источников и недавние запросы
+- «Слушать полностью» у 30-секундных превью: сначала SoundCloud
+  (замена stream URL в текущей очереди), затем официальный YouTube-плеер.
+  just_audio автоматически ставится на паузу, пока открыт YouTube.
 - Плеер: play/pause, next/prev, перемотка, громкость, shuffle,
   repeat (off / все / трек)
 - Мини-плеер с прогрессом; тап открывает полноэкранный плеер
@@ -30,7 +40,8 @@
   удаление и очистка
 - Библиотека: лайки, плейлисты (создать / переименовать / удалить /
   добавить треки из поиска или с телефона), «Мои треки», добавление
-  файла и прямой ссылки, настройки Jamendo `client_id`
+  файла и прямой ссылки, настройки Jamendo `client_id` и Last.fm API key
+  (также можно передать при сборке: `--dart-define=LASTFM_API_KEY=...`)
 - Фоновое воспроизведение и медиа-уведомление с кнопками
   (just_audio + audio_service, media3 session)
 - Обработка ошибок: нет сети (оформленный ErrorView + кэш), трек не
@@ -44,7 +55,8 @@
 | UI | Flutter, Material 3, тёмная тема, SeedColor `#1DB954` |
 | Аудио | `just_audio` (playlist API 0.10), `audio_service` 0.18 |
 | Состояние | `provider` |
-| Сеть | `http` (Deezer, iTunes, Audius, Jamendo, Internet Archive) |
+| Сеть | `http` (Deezer, iTunes, Audius, Jamendo, Internet Archive, YouTube) |
+| Полные версии | `soundcloud_explode_dart`, `youtube_player_iframe` |
 | Хранение | `shared_preferences` |
 | Локальные треки | `on_audio_query`, `permission_handler`, `file_picker` |
 | Обложки | `cached_network_image` |
@@ -62,8 +74,12 @@ lib/
     repositories/                # музыка/кэш, библиотека, локальные треки
   providers/                     # PlayerProvider, LibraryProvider, SearchProvider
   services/audio_player_handler.dart  # BaseAudioHandler: очередь, уведомление
+  services/full_track_resolver.dart   # SoundCloud → YouTube videoId → null
+  services/recommendation_service.dart # история, Last.fm, Deezer/iTunes
   screens/                       # home, search, library, settings, player
-  widgets/                       # мини-плеер, очередь, меню, artwork...
+  widgets/                       # мини-плеер, очередь, меню, artwork,
+                                 # карточки подборок, «Слушать полностью»,
+                                 # YouTube iframe...
 android/app/src/main/
   AndroidManifest.xml            # разрешения + audio_service service/receiver
 .github/workflows/build.yml     # CI: release APK как artifact

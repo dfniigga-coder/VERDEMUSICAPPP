@@ -16,6 +16,7 @@ import 'providers/player_provider.dart';
 import 'providers/search_provider.dart';
 import 'services/audio_player_handler.dart';
 import 'services/full_track_resolver.dart';
+import 'services/recommendation_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,6 +30,12 @@ Future<void> main() async {
   final musicRepo = MusicRepository(audiusApi, prefs);
   final searchApi = SearchApi(audiusApi, prefs);
   final localTracksRepo = LocalTracksRepository(OnAudioQuery(), prefs);
+  final recommendationService = RecommendationService(
+    prefs: prefs,
+    searchApi: searchApi,
+    library: libraryRepo,
+    localTracks: localTracksRepo,
+  );
 
   // 3. Разрешение на постоянные уведомления (Android 13+) — фон-плеер?
   await _requestNotificationPermission();
@@ -52,11 +59,15 @@ Future<void> main() async {
         Provider<SharedPreferences>.value(value: prefs),
         Provider<MusicRepository>.value(value: musicRepo),
         Provider<LibraryRepository>.value(value: libraryRepo),
+        Provider<RecommendationService>.value(value: recommendationService),
         ChangeNotifierProvider<LocalTracksRepository>.value(
           value: localTracksRepo,
         ),
         ChangeNotifierProvider<PlayerProvider>(
-          create: (_) => PlayerProvider(audioHandler),
+          create: (_) => PlayerProvider(
+            audioHandler,
+            recommendations: recommendationService,
+          ),
         ),
         ChangeNotifierProvider<LibraryProvider>(
           create: (_) => LibraryProvider(libraryRepo),

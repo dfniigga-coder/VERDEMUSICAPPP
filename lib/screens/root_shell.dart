@@ -57,10 +57,10 @@ class _RootShellState extends State<RootShell> {
           Expanded(
             child: IndexedStack(
               index: _tabIndex,
-              children: const [
-                HomeScreen(),
-                SearchScreen(),
-                LibraryScreen(),
+              children: [
+                HomeScreen(isActive: _tabIndex == 0),
+                const SearchScreen(),
+                const LibraryScreen(),
               ],
             ),
           ),
@@ -69,8 +69,7 @@ class _RootShellState extends State<RootShell> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tabIndex,
-        onDestinationSelected: (index) =>
-            setState(() => _tabIndex = index),
+        onDestinationSelected: (index) => setState(() => _tabIndex = index),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),

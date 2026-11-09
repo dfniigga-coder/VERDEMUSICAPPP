@@ -69,6 +69,11 @@ class Track {
   /// true — доступен только короткий фрагмент (Deezer/iTunes, 30 секунд).
   final bool isPreview;
 
+  /// Явный стабильный id. Нужен, когда трек заменяется полной версией из
+  /// другого источника: лайки, плейлисты и очередь должны остаться
+  /// привязанными к исходному треку.
+  final String? idOverride;
+
   const Track({
     required this.source,
     this.audiusId,
@@ -82,6 +87,7 @@ class Track {
     this.durationSec,
     this.genre,
     this.isPreview = false,
+    this.idOverride,
   });
 
   factory Track.audius({
@@ -176,6 +182,9 @@ class Track {
 
   /// Стабильный идентификатор «audius:…», «deezer:…», «local:…».
   String get id {
+    final override = idOverride;
+    if (override != null && override.isNotEmpty) return override;
+
     switch (source) {
       case TrackSource.audius:
         return 'audius:${audiusId ?? externalId ?? title}';
@@ -194,6 +203,9 @@ class Track {
   }
 
   Track copyWith({
+    TrackSource? source,
+    String? streamUrl,
+    String? idOverride,
     String? title,
     String? artist,
     String? artworkUrl,
@@ -202,23 +214,25 @@ class Track {
     bool? isPreview,
   }) {
     return Track(
-      source: source,
+      source: source ?? this.source,
       audiusId: audiusId,
       externalId: externalId,
       localSongId: localSongId,
       localPath: localPath,
-      streamUrl: streamUrl,
+      streamUrl: streamUrl ?? this.streamUrl,
       title: title ?? this.title,
       artist: artist ?? this.artist,
       artworkUrl: artworkUrl ?? this.artworkUrl,
       durationSec: durationSec ?? this.durationSec,
       genre: genre ?? this.genre,
       isPreview: isPreview ?? this.isPreview,
+      idOverride: idOverride ?? this.idOverride,
     );
   }
 
   Map<String, Object?> toJson() => {
     'src': source.name,
+    'id': idOverride,
     'sid': audiusId,
     'eid': externalId,
     'lid': localSongId,
@@ -256,6 +270,7 @@ class Track {
       durationSec: json['d'] is num ? (json['d'] as num).toInt() : null,
       genre: json['g'] is String ? json['g'] as String : null,
       isPreview: json['prev'] == true,
+      idOverride: json['id'] is String ? json['id'] as String : null,
     );
   }
 

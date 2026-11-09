@@ -1,13 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../data/models/track.dart';
 import '../services/audio_player_handler.dart';
+import '../services/recommendation_service.dart';
 
 /// UI-состояние плеера. Обёртка вокруг [AudioPlayerHandler]:
 /// хранит флаги для экранов и делегирует команды аудио-хендлеру.
 class PlayerProvider extends ChangeNotifier {
-  PlayerProvider(this._handler) {
+  PlayerProvider(this._handler, {RecommendationService? recommendations})
+    : _recommendations = recommendations {
     _handler.playbackState.map((s) => s.playing).distinct().listen((playing) {
       _playing = playing;
       notifyListeners();
@@ -21,6 +25,12 @@ class PlayerProvider extends ChangeNotifier {
     _handler.player.currentIndexStream.listen((index) {
       _currentIndex = index;
       notifyListeners();
+
+      final track = _handler.trackAt(index ?? -1);
+      final recommendations = _recommendations;
+      if (track != null && recommendations != null) {
+        unawaited(recommendations.recordPlay(track));
+      }
     });
 
     _handler.player.shuffleModeEnabledStream.listen((enabled) {
@@ -49,6 +59,7 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   final AudioPlayerHandler _handler;
+  final RecommendationService? _recommendations;
 
   bool _playing = false;
   ProcessingState _processing = ProcessingState.idle;
@@ -103,6 +114,13 @@ class PlayerProvider extends ChangeNotifier {
         startIndex: startIndex,
         shuffle: shuffle,
       );
+
+      final recommendations = _recommendations;
+      if (recommendations != null && tracks.isNotEmpty) {
+        var start = startIndex;
+        if (start < 0 || start >= tracks.length) start = 0;
+        unawaited(recommendations.recordPlay(tracks[start]));
+      }
     } catch (e) {
       errorNotifier.value =
           'Не удалось начать воспроизведение. Проверьте соединение.';
