@@ -298,7 +298,11 @@ class Mp3DownloadService {
   }
 
   String _metadataValue(String primary, String fallback, String emptyValue) {
-    final value = primary.trim().isNotEmpty ? primary.trim() : fallback.trim();
+    final primaryValue = primary.trim();
+    final fallbackValue = fallback.trim();
+    final useFallback =
+        primaryValue.isEmpty || primaryValue == 'Неизвестный исполнитель';
+    final value = useFallback ? fallbackValue : primaryValue;
     return value.isEmpty ? emptyValue : value;
   }
 

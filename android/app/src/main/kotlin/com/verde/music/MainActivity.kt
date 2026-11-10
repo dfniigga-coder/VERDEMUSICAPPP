@@ -108,7 +108,9 @@ class MainActivity : AudioServiceActivity() {
             put(MediaStore.Audio.Media.DISPLAY_NAME, displayName)
             put(MediaStore.Audio.Media.TITLE, title)
             put(MediaStore.Audio.Media.ARTIST, artist)
+            put(MediaStore.Audio.Media.ALBUM, "Verde")
             put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
+            put(MediaStore.Audio.Media.IS_MUSIC, 1)
             put(
                 MediaStore.Audio.Media.RELATIVE_PATH,
                 "${Environment.DIRECTORY_MUSIC}/Verde",

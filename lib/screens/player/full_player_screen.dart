@@ -6,6 +6,7 @@ import '../../core/utils/formatters.dart';
 import '../../data/models/track.dart';
 import '../../providers/player_provider.dart';
 import '../../widgets/artwork.dart';
+import '../../widgets/download_sheet.dart';
 import '../../widgets/queue_sheet.dart';
 import '../../widgets/track_tile.dart';
 
@@ -23,6 +24,7 @@ class FullPlayerScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Сейчас играет'),
         actions: [
+          if (track != null) DownloadButton(track: track),
           if (track != null)
             LikeButton(track: track)
           else

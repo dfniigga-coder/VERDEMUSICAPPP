@@ -293,6 +293,9 @@ class YoutubeService {
         }
       }
       await sink.flush();
+      if (totalBytes > 0 && received < totalBytes) {
+        throw const YoutubeException('Загрузка с YouTube оборвалась.');
+      }
     } finally {
       await sink.close();
     }
@@ -499,11 +502,21 @@ class YoutubeTitleParser {
     }
 
     final cleaned = _clean(work);
-    final channel = author.trim();
+    final channel = _cleanChannel(author);
     return YoutubeTitle(
       title: cleaned.isEmpty ? rawTitle.trim() : cleaned,
       artist: channel.isEmpty ? 'YouTube' : channel,
     );
+  }
+
+  static String _cleanChannel(String author) {
+    // Официальные аудио-каналы YouTube называются «Artist - Topic»,
+    // а VEVO-каналы — «ArtistVEVO».
+    return author
+        .trim()
+        .replaceFirst(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '')
+        .replaceFirst(RegExp(r'\s*VEVO$', caseSensitive: false), '')
+        .trim();
   }
 
   static String _clean(String value) {

@@ -287,8 +287,9 @@ class _YouTubeFullTrackPlayerState extends State<YouTubeFullTrackPlayer>
           ),
           const SizedBox(height: 10),
           const Text(
-            'В фоне YouTube-плеер останавливается — это ограничение YouTube. '
-            'Фоновое воспроизведение доступно для SoundCloud, Audius и Jamendo.',
+            'В фоне этот YouTube-плеер останавливается — ограничение IFrame. '
+            'Обычные YouTube-треки Verde играет через прямой аудиопоток '
+            'с фоновым воспроизведением.',
             style: TextStyle(fontSize: 12, color: AppTheme.textDim),
           ),
           if (_wasPlaying) ...[

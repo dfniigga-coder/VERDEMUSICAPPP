@@ -126,8 +126,7 @@ class DownloadProgressSheet extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Скачивание продолжится в фоне — прогресс виден '
-                    'внизу экрана.',
+                    'Скачивание продолжится — прогресс виден внизу экрана.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppTheme.textDim, fontSize: 11),
                   ),

@@ -87,6 +87,12 @@ class _RootShellState extends State<RootShell> {
               ],
             ),
           ),
+          Selector<PlayerProvider, bool>(
+            selector: (_, player) => player.isPreparing,
+            builder: (context, preparing, _) => preparing
+                ? const LinearProgressIndicator(minHeight: 2)
+                : const SizedBox.shrink(),
+          ),
           const DownloadProgressBanner(),
           const MiniPlayerBar(),
         ],
