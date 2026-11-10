@@ -14,8 +14,14 @@
 - **SoundCloud** — полные треки, если автор разрешил поток
   (`policy` ≠ SNIP/BLOCK, `StreamInfo.isSnipped == false`). Прямой stream URL
   проигрывает существующий just_audio, без второго `AudioPlayer`.
-- **YouTube** — только официальный IFrame-плеер для превью, у которых не
-  нашлось полной версии на SoundCloud. Аудио не извлекается и не скачивается.
+- **YouTube** — полноценный источник: поиск без API-ключа
+  (`youtube_explode_dart`), извлечение аудиопотока для just_audio и фон,
+  а также скачивание в MP3 с сохранением в `Music/Verde`. Если прямой
+  аудиопоток получить не удалось, для превью остаётся резервный
+  встроенный IFrame-плеер.
+- **Скачивание** — YouTube → MP3 192 кбит/с (`ffmpeg_kit` + `libmp3lame`)
+  с названием, исполнителем и обложкой. Готовый файл попадает в общую
+  папку `Music/Verde` (через MediaStore) и в «Мои треки».
 - **Локальные аудиофайлы** с телефона (`on_audio_query`), выбранные вручную
   файлы (`file_picker`) и прямые ссылки на MP3.
 
@@ -26,12 +32,17 @@
   (треки, которых не было больше 3 дней), «Похоже на …» через Last.fm
   и «Ежедневный микс» на 20 треков. Подборки строятся локально по истории,
   лайкам и медиатеке и обновляются после каждого прослушивания.
-- Поиск сразу по Deezer, iTunes, Audius, Jamendo и Internet Archive:
-  параллельные запросы с таймаутом 8 с, дебаунс 400 мс, чипы
+- Поиск сразу по Deezer, iTunes, Audius, Jamendo, Internet Archive и
+  YouTube: параллельные запросы с таймаутом 8 с, дебаунс 400 мс, чипы
   «Все / Полные / Превью», бейджи источников и недавние запросы
 - «Слушать полностью» у 30-секундных превью: сначала SoundCloud
-  (замена stream URL в текущей очереди), затем официальный YouTube-плеер.
-  just_audio автоматически ставится на паузу, пока открыт YouTube.
+  (замена stream URL в текущей очереди), затем YouTube — прямой
+  аудиопоток играет в фоне через just_audio; IFrame-плеер остаётся
+  запасным вариантом
+- Скачивание любого трека в MP3: кнопка загрузки в результатах поиска
+  и пункт «Скачать MP3» в меню трека. Прогресс виден в нижней панели
+  из любого экрана; готовый файл сохраняется в `Music/Verde` и
+  в «Мои треки»
 - Плеер: play/pause, next/prev, перемотка, громкость, shuffle,
   repeat (off / все / трек)
 - Мини-плеер с прогрессом; тап открывает полноэкранный плеер
@@ -56,7 +67,8 @@
 | Аудио | `just_audio` (playlist API 0.10), `audio_service` 0.18 |
 | Состояние | `provider` |
 | Сеть | `http` (Deezer, iTunes, Audius, Jamendo, Internet Archive, YouTube) |
-| Полные версии | `soundcloud_explode_dart`, `youtube_player_iframe` |
+| Полные версии | `soundcloud_explode_dart`, `youtube_explode_dart`, `youtube_player_iframe` |
+| Скачивание | `ffmpeg_kit_flutter_new_audio`, `path_provider`, MediaStore |
 | Хранение | `shared_preferences` |
 | Локальные треки | `on_audio_query`, `permission_handler`, `file_picker` |
 | Обложки | `cached_network_image` |
@@ -72,16 +84,21 @@ lib/
     api/search_api.dart          # параллельный мультипоиск и нормализация
     models/                      # Track, Playlist, Collection
     repositories/                # музыка/кэш, библиотека, локальные треки
-  providers/                     # PlayerProvider, LibraryProvider, SearchProvider
+  providers/                     # PlayerProvider, LibraryProvider, SearchProvider,
+                                 # DownloadProvider
   services/audio_player_handler.dart  # BaseAudioHandler: очередь, уведомление
-  services/full_track_resolver.dart   # SoundCloud → YouTube videoId → null
+  services/full_track_resolver.dart   # SoundCloud → YouTube (поток / videoId)
+  services/youtube_service.dart       # поиск, match, аудиопоток, загрузка
+  services/mp3_download_service.dart  # YouTube → MP3 + метаданные/обложка
+  services/media_store.dart           # сохранение в Music/Verde
   services/recommendation_service.dart # история, Last.fm, Deezer/iTunes
   screens/                       # home, search, library, settings, player
   widgets/                       # мини-плеер, очередь, меню, artwork,
                                  # карточки подборок, «Слушать полностью»,
-                                 # YouTube iframe...
+                                 # кнопка/лист скачивания, YouTube iframe...
 android/app/src/main/
   AndroidManifest.xml            # разрешения + audio_service service/receiver
+  kotlin/.../MainActivity.kt     # MethodChannel com.verde.music/media_store
 .github/workflows/build.yml     # CI: release APK как artifact
 ```
 
@@ -107,11 +124,19 @@ android/app/src/main/
 | `WAKE_LOCK` | media3 session, чтобы CPU не засыпал при загрузке |
 | `RECEIVE_BOOT_COMPLETED` | перезапуск media-сессии аудио-сервиса |
 | `READ_MEDIA_AUDIO` (+ `READ_EXTERNAL_STORAGE` ≤ API 32) | треки с телефона |
+| `WRITE_EXTERNAL_STORAGE` (≤ API 28) | MP3 в общую папку `Music/Verde` на Android 8–9; на 10+ используется MediaStore без разрешений |
 
 ## Заметки
 
 - `minSdk = 26` (Android 8.0): иконка — adaptive-icon XML без
   PNG-фоллбэков для старых API.
+- Скачанные треки хранятся в файлах приложения и дублируются в публичную
+  `Music/Verde` (MediaStore на Android 10+, прямое копирование на 8–9).
+  Если публичное сохранение не удалось, трек всё равно остаётся
+  в «Моих треках».
+- Загружайте только контент, на который у вас есть права. Использование
+  YouTube для скачивания может нарушать его условия и авторские права —
+  ответственность за использование лежит на пользователе.
 - Release APK подписывается debug-ключом (шаблон Flutter); для публикации
   в Google Play подключите keystore.
 - Приложение-идентификатор Audius: `VerdeMusic` (см. `lib/core/constants.dart`).

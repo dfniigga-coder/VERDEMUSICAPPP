@@ -1,0 +1,347 @@
+import 'dart:io';
+
+import 'package:ffmpeg_kit_flutter_new_audio/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new_audio/return_code.dart';
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+
+import '../data/models/track.dart';
+import '../data/repositories/local_tracks_repository.dart';
+import 'media_store.dart';
+import 'youtube_service.dart';
+
+/// Этапы скачивания — UI показывает их пользователю.
+enum DownloadStage { resolving, downloading, converting, saving, done, failed }
+
+extension DownloadStageInfo on DownloadStage {
+  String get label {
+    switch (this) {
+      case DownloadStage.resolving:
+        return 'Ищем трек на YouTube…';
+      case DownloadStage.downloading:
+        return 'Скачиваем аудио…';
+      case DownloadStage.converting:
+        return 'Конвертируем в MP3…';
+      case DownloadStage.saving:
+        return 'Сохраняем в Music/Verde…';
+      case DownloadStage.done:
+        return 'Готово';
+      case DownloadStage.failed:
+        return 'Не удалось скачать';
+    }
+  }
+
+  bool get isActive =>
+      this != DownloadStage.done && this != DownloadStage.failed;
+}
+
+class DownloadResult {
+  final String localPath;
+  final String? publicPath;
+  final String title;
+  final String artist;
+
+  const DownloadResult({
+    required this.localPath,
+    required this.publicPath,
+    required this.title,
+    required this.artist,
+  });
+}
+
+/// Скачивает трек с YouTube, конвертирует аудио в MP3 и сохраняет его
+/// в Music/Verde и в «Мои треки».
+class Mp3DownloadService {
+  Mp3DownloadService({
+    required YoutubeService youtube,
+    required LocalTracksRepository localTracks,
+    http.Client? httpClient,
+  }) : _youtube = youtube,
+       _localTracks = localTracks,
+       _ownsHttpClient = httpClient == null,
+       _http = httpClient ?? http.Client();
+
+  final YoutubeService _youtube;
+  final LocalTracksRepository _localTracks;
+  final bool _ownsHttpClient;
+  final http.Client _http;
+
+  /// [onProgress] вызывается на каждом этапе. Для downloading progress
+  /// равен 0.0–1.0, для остальных этапов обычно null (неопределённый).
+  Future<DownloadResult> download(
+    Track track, {
+    required void Function(DownloadStage stage, double? progress) onProgress,
+  }) async {
+    if (track.isLocal) {
+      throw const DownloadException('Этот трек уже есть на устройстве.');
+    }
+
+    onProgress(DownloadStage.resolving, null);
+
+    YoutubeMatch? match;
+    try {
+      match = await _youtube.findBest(
+        track.title,
+        track.artist,
+        // У превью Deezer/iTunes длительность всегда 30 секунд — по ней
+        // нельзя выбирать полную версию на YouTube.
+        durationSec: track.isPreview ? null : track.durationSec,
+        preferredVideoId: track.source == TrackSource.youtube
+            ? track.externalId
+            : null,
+      );
+    } catch (error) {
+      debugPrint('Mp3DownloadService: search failed: $error');
+      throw const DownloadException(
+        'Не удалось найти трек на YouTube. Проверьте соединение.',
+      );
+    }
+
+    if (match == null) {
+      throw const DownloadException(
+        'Трек не найден на YouTube. Попробуйте изменить запрос.',
+      );
+    }
+
+    final tempDir = await getTemporaryDirectory();
+    File? sourceFile;
+    File? coverFile;
+    File? outputFile;
+
+    try {
+      onProgress(DownloadStage.downloading, 0);
+
+      try {
+        sourceFile = await _youtube.downloadAudio(
+          match.videoId,
+          directory: tempDir,
+          onProgress: (progress) =>
+              onProgress(DownloadStage.downloading, progress),
+        );
+      } catch (error) {
+        debugPrint('Mp3DownloadService: download failed: $error');
+        throw const DownloadException(
+          'Не удалось скачать аудио с YouTube. Попробуйте ещё раз.',
+        );
+      }
+
+      onProgress(DownloadStage.converting, null);
+
+      final title = _metadataValue(track.title, match.title, 'Без названия');
+      final artist = _metadataValue(
+        track.artist,
+        match.artist,
+        'Неизвестный исполнитель',
+      );
+      final artworkUrl = track.artworkUrl ?? match.artworkUrl;
+
+      final baseDir =
+          await getExternalStorageDirectory() ??
+          await getApplicationDocumentsDirectory();
+      final outputDir = Directory('${baseDir.path}/Music/Verde');
+      await outputDir.create(recursive: true);
+
+      final fileName = _safeFileName('$artist - $title');
+      outputFile = _uniqueFile(outputDir, fileName, 'mp3');
+
+      coverFile = await _downloadCover(artworkUrl, tempDir);
+
+      var converted = await _convertToMp3(
+        sourceFile,
+        outputFile,
+        title: title,
+        artist: artist,
+        cover: coverFile,
+      );
+      if (!converted && coverFile != null) {
+        // Битая/неподдерживаемая обложка не должна ломать скачивание.
+        converted = await _convertToMp3(
+          sourceFile,
+          outputFile,
+          title: title,
+          artist: artist,
+        );
+      }
+      if (!converted || !await outputFile.exists()) {
+        throw const DownloadException(
+          'Не удалось конвертировать трек в MP3. Попробуйте ещё раз.',
+        );
+      }
+
+      onProgress(DownloadStage.saving, null);
+
+      String? publicPath;
+      try {
+        publicPath = await MediaStore.saveAudio(
+          filePath: outputFile.path,
+          displayName: outputFile.uri.pathSegments.last,
+          title: title,
+          artist: artist,
+        );
+      } catch (error) {
+        debugPrint('Mp3DownloadService: public save failed: $error');
+      }
+
+      await _localTracks.addDownloadedTrack(
+        path: outputFile.path,
+        title: title,
+        artist: artist,
+        durationSec: track.isPreview
+            ? match.durationSec
+            : (track.durationSec ?? match.durationSec),
+        artworkUrl: artworkUrl,
+      );
+
+      onProgress(DownloadStage.done, 1);
+      return DownloadResult(
+        localPath: outputFile.path,
+        publicPath: publicPath,
+        title: title,
+        artist: artist,
+      );
+    } finally {
+      await _deleteQuietly(sourceFile);
+      await _deleteQuietly(coverFile);
+    }
+  }
+
+  Future<bool> _convertToMp3(
+    File input,
+    File output, {
+    required String title,
+    required String artist,
+    File? cover,
+  }) async {
+    if (await output.exists()) {
+      await _deleteQuietly(output);
+    }
+
+    final arguments = <String>[
+      '-hide_banner',
+      '-y',
+      '-i',
+      input.path,
+      if (cover != null) ...['-i', cover.path],
+      '-map',
+      '0:a:0',
+      if (cover != null) ...[
+        '-map',
+        '1:v:0',
+        '-c:v',
+        'copy',
+        '-disposition:v',
+        'attached_pic',
+      ],
+      '-c:a',
+      'libmp3lame',
+      '-b:a',
+      '192k',
+      '-id3v2_version',
+      '3',
+      '-metadata',
+      'title=$title',
+      '-metadata',
+      'artist=$artist',
+      '-metadata',
+      'album=Verde',
+      if (cover != null) ...[
+        '-metadata:s:v',
+        'title=Album cover',
+        '-metadata:s:v',
+        'comment=Cover (front)',
+      ],
+      output.path,
+    ];
+
+    try {
+      final session = await FFmpegKit.executeWithArguments(arguments);
+      final returnCode = await session.getReturnCode();
+      if (ReturnCode.isSuccess(returnCode) && await output.exists()) {
+        return await output.length() > 0;
+      }
+
+      debugPrint(
+        'Mp3DownloadService: ffmpeg failed ($returnCode): '
+        '${await session.getOutput()}',
+      );
+      await _deleteQuietly(output);
+      return false;
+    } catch (error) {
+      debugPrint('Mp3DownloadService: ffmpeg error: $error');
+      await _deleteQuietly(output);
+      return false;
+    }
+  }
+
+  Future<File?> _downloadCover(String? url, Directory tempDir) async {
+    if (url == null || url.trim().isEmpty) return null;
+
+    try {
+      final response = await _http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200 || response.bodyBytes.isEmpty) return null;
+
+      final type = response.headers['content-type']?.toLowerCase() ?? '';
+      final extension = type.contains('png') ? 'png' : 'jpg';
+      final file = File(
+        '${tempDir.path}/verde_cover_'
+        '${DateTime.now().microsecondsSinceEpoch}.$extension',
+      );
+      await file.writeAsBytes(response.bodyBytes, flush: true);
+      return file;
+    } catch (error) {
+      debugPrint('Mp3DownloadService: cover download failed: $error');
+      return null;
+    }
+  }
+
+  String _metadataValue(String primary, String fallback, String emptyValue) {
+    final value = primary.trim().isNotEmpty ? primary.trim() : fallback.trim();
+    return value.isEmpty ? emptyValue : value;
+  }
+
+  String _safeFileName(String value) {
+    var name = value
+        .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    name = name.replaceAll(RegExp(r'^[.\s]+|[.\s]+$'), '');
+    if (name.isEmpty) name = 'Verde track';
+    if (name.length > 120) name = name.substring(0, 120).trim();
+    return name;
+  }
+
+  File _uniqueFile(Directory directory, String baseName, String extension) {
+    var file = File('${directory.path}/$baseName.$extension');
+    var counter = 2;
+    while (file.existsSync()) {
+      file = File('${directory.path}/$baseName ($counter).$extension');
+      counter++;
+    }
+    return file;
+  }
+
+  Future<void> _deleteQuietly(File? file) async {
+    if (file == null) return;
+    try {
+      if (await file.exists()) await file.delete();
+    } catch (_) {
+      // Временный файл удалит система.
+    }
+  }
+
+  void dispose() {
+    if (_ownsHttpClient) _http.close();
+  }
+}
+
+class DownloadException implements Exception {
+  final String message;
+
+  const DownloadException(this.message);
+
+  @override
+  String toString() => message;
+}

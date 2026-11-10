@@ -76,15 +76,15 @@ extension FullTrackSourceInfo on FullTrackSource {
 
 /// Результат работы `FullTrackResolver`.
 ///
-/// [streamUrl] заполнен только для источников, которые можно отдать
-/// в just_audio (сейчас — SoundCloud). Для YouTube используется
-/// [youtubeVideoId] и встроенный iFrame-плеер.
+/// [streamUrl] заполнен для источников, которые можно отдать в just_audio
+/// (SoundCloud и YouTube). Для YouTube также сохраняется [youtubeVideoId] —
+/// запасной вариант со встроенным iFrame-плеером.
 class ResolvedTrack {
   final String title;
   final String artist;
   final String? artworkUrl;
 
-  /// Прямой URL аудиопотока для just_audio (SoundCloud).
+  /// Прямой URL аудиопотока для just_audio (SoundCloud или YouTube).
   final String? streamUrl;
 
   final FullTrackSource source;
@@ -111,8 +111,12 @@ class ResolvedTrack {
   });
 
   /// Можно ли отдать трек в существующий just_audio/audio_service плеер.
+  ///
+  /// YouTube тоже играет через just_audio: сервис извлекает прямой
+  /// аудиопоток, поэтому доступны фон, уведомление и экран блокировки.
   bool get canPlayInJustAudio =>
-      source == FullTrackSource.soundcloud &&
+      (source == FullTrackSource.soundcloud ||
+          source == FullTrackSource.youtube) &&
       streamUrl != null &&
       streamUrl!.isNotEmpty;
 
@@ -124,9 +128,8 @@ class ResolvedTrack {
 
   /// Превращает результат в [Track], совместимый с очередью just_audio.
   ///
-  /// Для YouTube такой Track в очередь не ставится — его играет отдельный
-  /// виджет. Если исходный трек был превью, его обложка/длительность
-  /// используются как fallback.
+  /// Для YouTube поток играет через just_audio; если он недоступен,
+  /// UI может открыть встроенный iFrame-плеер.
   Track toTrack({Track? fallback}) {
     return Track(
       source: source.trackSource,

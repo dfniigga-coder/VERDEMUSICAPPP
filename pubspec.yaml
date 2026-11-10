@@ -1,7 +1,7 @@
 name: verde
 description: "Verde — музыкальный плеер в стиле Spotify: мультиисточниковый поиск, локальные треки, фоновое воспроизведение."
 publish_to: "none"
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ">=3.10.0 <4.0.0"
@@ -32,9 +32,20 @@ dependencies:
   # Обложки с кэшированием
   cached_network_image: ^4.0.6
 
+  # Пути к файлам (скачанные MP3, временные файлы, кэш)
+  path_provider: ^2.1.5
+
   # Полные треки: SoundCloud (поиск + stream URL без ручного client_id).
   # Пакет использует внутренний api-v2.soundcloud.com и сам добывает client_id.
   soundcloud_explode_dart: ^1.1.0
+
+  # YouTube без API-ключа: поиск, метаданные и прямые аудиопотоки.
+  # Используется и для стриминга, и для скачивания треков.
+  youtube_explode_dart: ^3.1.0
+
+  # Конвертация скачанного аудио (m4a/webm/opus) в MP3.
+  # Audio-вариант FFmpeg: libmp3lame, opus, vorbis, AAC и другие аудиокодеки.
+  ffmpeg_kit_flutter_new_audio: ^2.5.8
 
   # Полные треки: официальный YouTube iFrame Player API.
   # Выбран youtube_player_iframe, а не youtube_player_flutter: он легче,

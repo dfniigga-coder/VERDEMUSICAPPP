@@ -11,12 +11,15 @@ import 'data/api/search_api.dart';
 import 'data/repositories/library_repository.dart';
 import 'data/repositories/local_tracks_repository.dart';
 import 'data/repositories/music_repository.dart';
+import 'providers/download_provider.dart';
 import 'providers/library_provider.dart';
 import 'providers/player_provider.dart';
 import 'providers/search_provider.dart';
 import 'services/audio_player_handler.dart';
 import 'services/full_track_resolver.dart';
+import 'services/mp3_download_service.dart';
 import 'services/recommendation_service.dart';
+import 'services/youtube_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,8 +31,13 @@ Future<void> main() async {
   final libraryRepo = LibraryRepository(prefs)..load();
   final audiusApi = AudiusApi(prefs);
   final musicRepo = MusicRepository(audiusApi, prefs);
-  final searchApi = SearchApi(audiusApi, prefs);
+  final youtubeService = YoutubeService();
+  final searchApi = SearchApi(audiusApi, prefs, youtubeService);
   final localTracksRepo = LocalTracksRepository(OnAudioQuery(), prefs);
+  final mp3DownloadService = Mp3DownloadService(
+    youtube: youtubeService,
+    localTracks: localTracksRepo,
+  );
   final recommendationService = RecommendationService(
     prefs: prefs,
     searchApi: searchApi,
@@ -60,6 +68,14 @@ Future<void> main() async {
         Provider<MusicRepository>.value(value: musicRepo),
         Provider<LibraryRepository>.value(value: libraryRepo),
         Provider<RecommendationService>.value(value: recommendationService),
+        Provider<YoutubeService>(
+          create: (_) => youtubeService,
+          dispose: (_, service) => service.dispose(),
+        ),
+        Provider<Mp3DownloadService>(
+          create: (_) => mp3DownloadService,
+          dispose: (_, service) => service.dispose(),
+        ),
         ChangeNotifierProvider<LocalTracksRepository>.value(
           value: localTracksRepo,
         ),
@@ -67,6 +83,7 @@ Future<void> main() async {
           create: (_) => PlayerProvider(
             audioHandler,
             recommendations: recommendationService,
+            youtube: youtubeService,
           ),
         ),
         ChangeNotifierProvider<LibraryProvider>(
@@ -75,8 +92,11 @@ Future<void> main() async {
         ChangeNotifierProvider<SearchProvider>(
           create: (_) => SearchProvider(searchApi, libraryRepo),
         ),
+        ChangeNotifierProvider<DownloadProvider>(
+          create: (_) => DownloadProvider(mp3DownloadService),
+        ),
         Provider<FullTrackResolver>(
-          create: (_) => FullTrackResolver(),
+          create: (_) => FullTrackResolver(youtube: youtubeService),
           dispose: (_, resolver) => resolver.dispose(),
         ),
       ],

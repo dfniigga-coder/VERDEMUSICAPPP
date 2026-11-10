@@ -237,9 +237,10 @@ class AudioPlayerHandler extends BaseAudioHandler
   // --- Вспомогательное -----------------------------------------------------
 
   AudioSource _sourceFor(Track track) {
-    if (track.source == TrackSource.youtube) {
+    if (track.source == TrackSource.youtube &&
+        (track.streamUrl == null || track.streamUrl!.isEmpty)) {
       throw const TrackLoadException(
-        'YouTube-треки играет встроенный плеер, а не just_audio.',
+        'Аудиопоток YouTube ещё не получен. Попробуйте снова.',
       );
     }
 

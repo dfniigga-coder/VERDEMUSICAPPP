@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../providers/download_provider.dart';
 import '../providers/player_provider.dart';
 import 'home/home_screen.dart';
 import 'library/library_screen.dart';
 import 'search/search_screen.dart';
+import '../widgets/download_sheet.dart';
 import '../widgets/mini_player.dart';
 
 /// Каркас: bottom nav = 3 таба (IndexedStack сохраняет состояние),
@@ -19,6 +21,7 @@ class RootShell extends StatefulWidget {
 class _RootShellState extends State<RootShell> {
   int _tabIndex = 0;
   PlayerProvider? _playerRef;
+  DownloadProvider? _downloadsRef;
 
   @override
   void initState() {
@@ -26,11 +29,15 @@ class _RootShellState extends State<RootShell> {
     // Показываем снекбары об ошибках воспроизведения в любом табе.
     _playerRef = context.read<PlayerProvider>();
     _playerRef!.errorNotifier.addListener(_showPlayError);
+    // И о завершении скачивания — тоже из любого таба.
+    _downloadsRef = context.read<DownloadProvider>();
+    _downloadsRef!.notice.addListener(_showDownloadNotice);
   }
 
   @override
   void dispose() {
     _playerRef?.errorNotifier.removeListener(_showPlayError);
+    _downloadsRef?.notice.removeListener(_showDownloadNotice);
     super.dispose();
   }
 
@@ -45,6 +52,22 @@ class _RootShellState extends State<RootShell> {
         content: Text(message),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(milliseconds: 2500),
+      ),
+    );
+  }
+
+  void _showDownloadNotice() {
+    final downloads = _downloadsRef;
+    final notice = downloads?.notice.value;
+    if (notice == null) return;
+    downloads!.notice.value = null;
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(notice.message),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: notice.isError ? 4 : 3),
+        backgroundColor: notice.isError ? const Color(0xFF7A2E2E) : null,
       ),
     );
   }
@@ -64,6 +87,7 @@ class _RootShellState extends State<RootShell> {
               ],
             ),
           ),
+          const DownloadProgressBanner(),
           const MiniPlayerBar(),
         ],
       ),

@@ -8,10 +8,12 @@ import '../../data/models/track.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/search_provider.dart';
 import '../../widgets/common.dart';
+import '../../widgets/download_sheet.dart';
 import '../../widgets/full_track_button.dart';
+import '../../widgets/track_menu.dart';
 import '../../widgets/track_tile.dart';
 
-/// Мультиисточниковый поиск: Deezer, iTunes, Audius, Jamendo, Archive.
+/// Мультиисточниковый поиск: Deezer, iTunes, Audius, Jamendo, Archive, YouTube.
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
 
@@ -190,10 +192,12 @@ class _ResultsList extends StatelessWidget {
         return TrackTile(
           track: track,
           onTap: () => onPlay(results, index),
+          onLongPress: () => showTrackMenu(context, track: track),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (track.isPreview) FullTrackButton(track: track),
+              DownloadButton(track: track),
               LikeButton(track: track),
             ],
           ),
@@ -219,7 +223,7 @@ class _RecentSearches extends StatelessWidget {
         icon: Icons.tips_and_updates_outlined,
         title: 'Что послушаем?',
         subtitle:
-            'Deezer, iTunes, Audius, Jamendo и Internet Archive — '
+            'Deezer, iTunes, Audius, Jamendo, Internet Archive и YouTube — '
             'в одном поиске',
       );
     }

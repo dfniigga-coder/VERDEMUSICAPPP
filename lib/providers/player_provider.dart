@@ -6,12 +6,17 @@ import 'package:just_audio/just_audio.dart';
 import '../data/models/track.dart';
 import '../services/audio_player_handler.dart';
 import '../services/recommendation_service.dart';
+import '../services/youtube_service.dart';
 
 /// UI-состояние плеера. Обёртка вокруг [AudioPlayerHandler]:
 /// хранит флаги для экранов и делегирует команды аудио-хендлеру.
 class PlayerProvider extends ChangeNotifier {
-  PlayerProvider(this._handler, {RecommendationService? recommendations})
-    : _recommendations = recommendations {
+  PlayerProvider(
+    this._handler, {
+    RecommendationService? recommendations,
+    YoutubeService? youtube,
+  }) : _recommendations = recommendations,
+       _youtube = youtube {
     _handler.playbackState.map((s) => s.playing).distinct().listen((playing) {
       _playing = playing;
       notifyListeners();
@@ -60,6 +65,7 @@ class PlayerProvider extends ChangeNotifier {
 
   final AudioPlayerHandler _handler;
   final RecommendationService? _recommendations;
+  final YoutubeService? _youtube;
 
   bool _playing = false;
   ProcessingState _processing = ProcessingState.idle;
@@ -67,6 +73,7 @@ class PlayerProvider extends ChangeNotifier {
   bool _shuffle = false;
   LoopMode _loopMode = LoopMode.off;
   double _volume = 1.0;
+  bool _preparing = false;
 
   /// Отдельный ValueNotifier, чтобы UI мог показывать снекбар без
   /// перерисовки всего дерева на каждое изменение.
@@ -81,6 +88,10 @@ class PlayerProvider extends ChangeNotifier {
   bool get isBuffering =>
       _processing == ProcessingState.buffering ||
       _processing == ProcessingState.loading;
+
+  /// true — прямо сейчас получаем прямые аудиопотоки YouTube.
+  /// UI показывает тонкую полоску прогресса, пока очередь готовится.
+  bool get isPreparing => _preparing;
 
   bool get hasQueue => _handler.tracks.isNotEmpty;
 
@@ -108,22 +119,51 @@ class PlayerProvider extends ChangeNotifier {
     int startIndex = 0,
     bool shuffle = false,
   }) async {
+    if (tracks.isEmpty) return;
+
+    var start = startIndex;
+    if (start < 0 || start >= tracks.length) start = 0;
+
+    _setPreparing(true);
     try {
+      // YouTube-треки приходят из поиска без прямого URL. Получаем их
+      // параллельно: обычно это 0,5–2 секунды, после чего очередь
+      // полностью готова к фоновому воспроизведению.
+      final prepared = await Future.wait(
+        tracks.map((track) => _prepareTrack(track)),
+      );
+
+      final playable = <Track>[];
+      var playableStart = -1;
+      for (var i = 0; i < prepared.length; i++) {
+        final track = prepared[i];
+        if (!_canPlay(track)) continue;
+        if (i == start) playableStart = playable.length;
+        playable.add(track);
+      }
+
+      if (playableStart < 0) {
+        errorNotifier.value = prepared[start].source == TrackSource.youtube
+            ? 'Не удалось получить аудио с YouTube. Выберите другой результат.'
+            : 'Не удалось начать воспроизведение. Проверьте соединение.';
+        return;
+      }
+
       await _handler.playTracks(
-        tracks,
-        startIndex: startIndex,
+        playable,
+        startIndex: playableStart,
         shuffle: shuffle,
       );
 
       final recommendations = _recommendations;
-      if (recommendations != null && tracks.isNotEmpty) {
-        var start = startIndex;
-        if (start < 0 || start >= tracks.length) start = 0;
-        unawaited(recommendations.recordPlay(tracks[start]));
+      if (recommendations != null) {
+        unawaited(recommendations.recordPlay(playable[playableStart]));
       }
     } catch (e) {
       errorNotifier.value =
           'Не удалось начать воспроизведение. Проверьте соединение.';
+    } finally {
+      _setPreparing(false);
     }
   }
 
@@ -179,9 +219,31 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> playAt(int index) => _handler.skipToQueueItem(index);
 
-  Future<void> addToQueue(Track track) => _handler.addToQueue(track);
+  Future<void> addToQueue(Track track) async {
+    final prepared = await _prepareTrack(track);
+    if (!_canPlay(prepared)) {
+      errorNotifier.value = 'Не удалось получить аудио этого трека.';
+      return;
+    }
+    try {
+      await _handler.addToQueue(prepared);
+    } catch (_) {
+      errorNotifier.value = 'Не удалось добавить трек в очередь.';
+    }
+  }
 
-  Future<void> playNext(Track track) => _handler.playNext(track);
+  Future<void> playNext(Track track) async {
+    final prepared = await _prepareTrack(track);
+    if (!_canPlay(prepared)) {
+      errorNotifier.value = 'Не удалось получить аудио этого трека.';
+      return;
+    }
+    try {
+      await _handler.playNext(prepared);
+    } catch (_) {
+      errorNotifier.value = 'Не удалось поставить трек следующим.';
+    }
+  }
 
   Future<void> removeFromQueue(int index) => _handler.removeFromQueue(index);
 
@@ -194,6 +256,42 @@ class PlayerProvider extends ChangeNotifier {
   Future<void> setVolume(double value) {
     final v = value.clamp(0.0, 1.0);
     return _handler.player.setVolume(v);
+  }
+
+  // --- Подготовка YouTube-треков -------------------------------------------
+
+  bool _canPlay(Track track) {
+    if (track.source == TrackSource.local) {
+      return track.localPath?.isNotEmpty ?? false;
+    }
+    if (track.source == TrackSource.audius) {
+      return track.audiusId?.isNotEmpty ?? false;
+    }
+    return track.streamUrl?.isNotEmpty ?? false;
+  }
+
+  Future<Track> _prepareTrack(Track track) async {
+    if (track.source != TrackSource.youtube) return track;
+    if (track.streamUrl?.isNotEmpty ?? false) return track;
+
+    final youtube = _youtube;
+    final videoId = track.externalId;
+    if (youtube == null || videoId == null || videoId.isEmpty) return track;
+
+    try {
+      final audio = await youtube.audioFor(videoId);
+      if (audio == null) return track;
+      return track.copyWith(streamUrl: audio.url);
+    } catch (error) {
+      debugPrint('PlayerProvider: YouTube resolve failed for $videoId: $error');
+      return track;
+    }
+  }
+
+  void _setPreparing(bool value) {
+    if (_preparing == value) return;
+    _preparing = value;
+    notifyListeners();
   }
 
   @override

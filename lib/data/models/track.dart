@@ -113,6 +113,7 @@ class Track {
     required String artist,
     required String path,
     int? durationSec,
+    String? artworkUrl,
   }) => Track(
     source: TrackSource.local,
     localSongId: songId,
@@ -120,6 +121,7 @@ class Track {
     title: title,
     artist: artist,
     durationSec: durationSec,
+    artworkUrl: artworkUrl,
   );
 
   /// Локальный файл, выбранный вручную через file_picker (без id медиатеки).
@@ -128,12 +130,51 @@ class Track {
     required String title,
     required String artist,
     int? durationSec,
+    String? artworkUrl,
   }) => Track(
     source: TrackSource.local,
     localPath: path,
     title: title,
     artist: artist,
     durationSec: durationSec,
+    artworkUrl: artworkUrl,
+  );
+
+  /// MP3, скачанный приложением (YouTube → MP3).
+  ///
+  /// Хранится как локальный файл, поэтому играет без сети и виден
+  /// в «Моих треках» наравне с музыкой с телефона.
+  factory Track.downloaded({
+    required String path,
+    required String title,
+    required String artist,
+    int? durationSec,
+    String? artworkUrl,
+  }) => Track.file(
+    path: path,
+    title: title,
+    artist: artist,
+    durationSec: durationSec,
+    artworkUrl: artworkUrl,
+  );
+
+  /// Трек из поиска YouTube. [streamUrl] может быть null: прямой аудиопоток
+  /// резолвится лениво перед воспроизведением.
+  factory Track.youtube({
+    required String videoId,
+    required String title,
+    required String artist,
+    String? artworkUrl,
+    int? durationSec,
+    String? streamUrl,
+  }) => Track(
+    source: TrackSource.youtube,
+    externalId: videoId,
+    title: title,
+    artist: artist,
+    artworkUrl: artworkUrl,
+    durationSec: durationSec,
+    streamUrl: streamUrl,
   );
 
   /// Трек из публичного онлайн-источника.

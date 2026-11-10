@@ -75,9 +75,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Deezer, iTunes, Audius и Internet Archive работают без ключей. '
-            'Для Jamendo нужен бесплатный client_id, для Last.fm — API key. '
-            'Без ключей эти источники просто пропускаются.',
+            'Deezer, iTunes, Audius, Internet Archive и YouTube работают без '
+            'ключей. Для Jamendo нужен бесплатный client_id, для Last.fm — '
+            'API key. Без ключей эти источники просто пропускаются.',
             style: TextStyle(color: AppTheme.textDim, height: 1.45),
           ),
           const SizedBox(height: 24),
@@ -160,6 +160,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             icon: Icons.account_balance,
             title: 'Internet Archive',
             subtitle: 'Полные треки',
+          ),
+          const _SourceRow(
+            icon: Icons.smart_display,
+            title: 'YouTube',
+            subtitle: 'Полные треки и скачивание в MP3',
           ),
         ],
       ),

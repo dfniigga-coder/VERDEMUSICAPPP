@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,6 +10,7 @@ import '../providers/library_provider.dart';
 import '../providers/player_provider.dart';
 import 'artwork.dart';
 import 'dialogs.dart';
+import 'download_sheet.dart';
 import 'full_track_button.dart';
 
 /// Bottom-меню действий над треком: очередь, лайк, плейлисты.
@@ -76,6 +79,19 @@ Future<void> showTrackMenu(
                 onTap: () {
                   navigator.pop();
                   playFullTrack(context, track);
+                },
+              ),
+            if (!track.isLocal)
+              ListTile(
+                leading: const Icon(Icons.download_for_offline_outlined),
+                title: const Text('Скачать MP3'),
+                subtitle: const Text(
+                  'YouTube → MP3, в Music/Verde и «Мои треки»',
+                  style: TextStyle(fontSize: 12),
+                ),
+                onTap: () {
+                  navigator.pop();
+                  unawaited(startDownloadWithSheet(context, track));
                 },
               ),
             ListTile(

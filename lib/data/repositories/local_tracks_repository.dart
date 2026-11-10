@@ -122,6 +122,32 @@ class LocalTracksRepository extends ChangeNotifier {
     return added;
   }
 
+  /// Добавляет скачанный приложением MP3 в «Мои треки».
+  ///
+  /// В отличие от [addFiles], сохраняет нормальные название, исполнителя,
+  /// длительность и обложку, а не разбирает имя файла.
+  Future<bool> addDownloadedTrack({
+    required String path,
+    required String title,
+    required String artist,
+    int? durationSec,
+    String? artworkUrl,
+  }) async {
+    final track = Track.downloaded(
+      path: path,
+      title: title,
+      artist: artist,
+      durationSec: durationSec,
+      artworkUrl: artworkUrl,
+    );
+    if (_saved.any((item) => item.id == track.id)) return false;
+
+    _saved.insert(0, track);
+    await _persistSaved();
+    notifyListeners();
+    return true;
+  }
+
   /// Добавляет прямую ссылку на MP3. false — ссылка уже есть в библиотеке.
   Future<bool> addStreamUrl(String url) async {
     final clean = url.trim();

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/constants.dart';
 import '../../core/errors/app_exceptions.dart';
+import '../../services/youtube_service.dart';
 import '../models/track.dart';
 import 'audius_api.dart';
 
@@ -36,14 +37,16 @@ class SearchOutcome {
   bool get noNetwork => allFailed && networkFailures == attemptedSources;
 }
 
-/// Параллельный поиск по Deezer, iTunes, Audius, Jamendo и Internet Archive.
+/// Параллельный поиск по Deezer, iTunes, Audius, Jamendo, Internet Archive
+/// и YouTube.
 ///
 /// Каждый источник изолирован: его ошибка или таймаут не мешает остальным.
 class SearchApi {
-  SearchApi(this._audius, this._prefs);
+  SearchApi(this._audius, this._prefs, this._youtube);
 
   final AudiusApi _audius;
   final SharedPreferences _prefs;
+  final YoutubeService _youtube;
 
   static const Duration _sourceTimeout = Duration(
     seconds: AppConstants.searchTimeoutSeconds,
@@ -81,6 +84,17 @@ class SearchApi {
     if (enabled(TrackSource.archive)) {
       futures.add(_attempt(TrackSource.archive, () => _archive(q)));
     }
+    if (enabled(TrackSource.youtube)) {
+      futures.add(
+        _attempt(
+          TrackSource.youtube,
+          () => _youtube.searchTracks(q),
+          // YouTube ищет дольше остальных источников; внутренний таймаут
+          // сервиса (9 с) срабатывает раньше этого предохранителя.
+          timeout: const Duration(seconds: 10),
+        ),
+      );
+    }
 
     final jamendoClientId =
         _prefs.getString(AppConstants.jamendoClientIdKey)?.trim() ?? '';
@@ -101,10 +115,11 @@ class SearchApi {
 
   Future<_SourceAttempt> _attempt(
     TrackSource source,
-    Future<List<Track>> Function() load,
-  ) async {
+    Future<List<Track>> Function() load, {
+    Duration? timeout,
+  }) async {
     try {
-      final tracks = await load().timeout(_sourceTimeout);
+      final tracks = await load().timeout(timeout ?? _sourceTimeout);
       return _SourceAttempt(tracks);
     } on TimeoutException {
       return const _SourceAttempt([], failed: true, network: true);
