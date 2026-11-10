@@ -291,7 +291,7 @@ class FullTrackResolver {
   String _normalize(String value) {
     return value
         .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9а-яё\s]+'), ' ')
+        .replaceAll(RegExp(r'[^\p{L}\p{N}\s]+', unicode: true), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }
