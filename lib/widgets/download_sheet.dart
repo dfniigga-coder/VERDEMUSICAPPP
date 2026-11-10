@@ -356,7 +356,7 @@ class DownloadButton extends StatelessWidget {
               child: CircularProgressIndicator(
                 strokeWidth: 2,
                 value: task!.stage == DownloadStage.downloading
-                    ? task.progress
+                    ? task!.progress
                     : null,
               ),
             )

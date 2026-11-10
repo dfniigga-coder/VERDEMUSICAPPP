@@ -48,19 +48,30 @@ class LocalTracksRepository extends ChangeNotifier {
   List<Track> get saved => List.unmodifiable(_saved);
 
   /// Всё, что показываем в «Моих треках»: добавленное + медиатека.
+  ///
+  /// Медиатека может содержать копию скачанного трека из Music/Verde,
+  /// поэтому дополнительно сравниваем название и исполнителя: иначе один
+  /// и тот же MP3 появлялся бы дважды — как файл приложения и как
+  /// проиндексированный MediaStore.
   List<Track> get cached {
     final savedPaths = _saved
         .map((track) => track.localPath)
         .whereType<String>()
         .toSet();
+    final savedKeys = _saved.map(_trackKey).toSet();
     return List.unmodifiable([
       ..._saved,
       ..._cached.where((track) {
         final path = track.localPath;
-        return path == null || !savedPaths.contains(path);
+        if (path != null && savedPaths.contains(path)) return false;
+        return !savedKeys.contains(_trackKey(track));
       }),
     ]);
   }
+
+  String _trackKey(Track track) =>
+      '${track.title.trim().toLowerCase()}|'
+      '${track.artist.trim().toLowerCase()}';
 
   bool get hasLoaded => _cached.isNotEmpty || _saved.isNotEmpty;
 
