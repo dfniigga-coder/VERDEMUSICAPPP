@@ -62,6 +62,11 @@ class YoutubeService {
   static const Duration _audioCacheTtl = Duration(hours: 1);
   static const Duration _searchCacheTtl = Duration(minutes: 10);
   static const Duration _searchTimeout = Duration(seconds: 9);
+
+  /// Короткие Shorts и бесконечные эфиры/монтажи отбрасываются, но длинные
+  /// музыкальные вещи (сюиты, живые джемы) остаются доступными.
+  static const int _minDurationSec = 20;
+  static const int _maxDurationSec = 60 * 60;
   static const Duration _manifestTimeout = Duration(seconds: 25);
 
   final YoutubeExplode _youtube;
@@ -98,7 +103,8 @@ class YoutubeService {
     for (final video in results) {
       if (video.isLive) continue;
       final durationSec = video.duration?.inSeconds;
-      if (durationSec != null && (durationSec < 20 || durationSec > 20 * 60)) {
+      if (durationSec != null &&
+          (durationSec < _minDurationSec || durationSec > _maxDurationSec)) {
         continue;
       }
 
@@ -160,7 +166,8 @@ class YoutubeService {
       if (video.isLive) continue;
       final candidateDuration = video.duration?.inSeconds;
       if (candidateDuration != null &&
-          (candidateDuration < 20 || candidateDuration > 20 * 60)) {
+          (candidateDuration < _minDurationSec ||
+              candidateDuration > _maxDurationSec)) {
         continue;
       }
 
