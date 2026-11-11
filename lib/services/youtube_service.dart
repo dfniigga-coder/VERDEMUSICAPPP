@@ -340,6 +340,10 @@ class YoutubeService {
     final stamp = DateTime.now().microsecondsSinceEpoch;
     final base = '${directory.path}/verde_${stamp}_$safeId';
 
+    // Пока устанавливаем соединение с зеркалом, процент ещё неизвестен.
+    // Неопределённый прогресс лучше, чем «застывшие» 0%.
+    onProgress?.call(null);
+
     // 1. Основной путь: прокси Invidious. Он медленнее прямого YouTube
     // примерно на секунду, зато не зависает на нулевом прогрессе.
     try {
