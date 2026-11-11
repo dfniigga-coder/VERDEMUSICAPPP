@@ -349,13 +349,23 @@ class YoutubeService {
   }) async {
     final sink = file.openWrite();
     var received = 0;
+    var lastProgressAt = -1000;
+    final clock = Stopwatch()..start();
     try {
       await for (final chunk in stream.timeout(const Duration(seconds: 45))) {
         sink.add(chunk);
         received += chunk.length;
+
+        // Не дёргаем UI на каждый сетевой пакет: при быстрой загрузке
+        // это сотни перестроений в секунду и заметный лишний расход CPU.
+        final now = clock.elapsedMilliseconds;
         if (totalBytes > 0) {
-          onProgress?.call((received / totalBytes).clamp(0.0, 1.0));
-        } else {
+          if (now - lastProgressAt >= 100 || received >= totalBytes) {
+            lastProgressAt = now;
+            onProgress?.call((received / totalBytes).clamp(0.0, 1.0));
+          }
+        } else if (now - lastProgressAt >= 250) {
+          lastProgressAt = now;
           onProgress?.call(null);
         }
       }

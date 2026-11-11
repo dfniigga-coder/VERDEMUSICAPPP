@@ -157,9 +157,18 @@ class Mp3DownloadService {
     final tempDir = await getTemporaryDirectory();
     File? sourceFile;
     File? coverFile;
+    File? rawMp3;
     File? outputFile;
 
     try {
+      final title = _metadataValue(track.title, match.title, 'Без названия');
+      final artist = _metadataValue(
+        track.artist,
+        match.artist,
+        'Неизвестный исполнитель',
+      );
+      final artworkUrl = track.artworkUrl ?? match.artworkUrl;
+
       onProgress(DownloadStage.downloading, 0);
 
       try {
@@ -178,14 +187,6 @@ class Mp3DownloadService {
 
       onProgress(DownloadStage.converting, null);
 
-      final title = _metadataValue(track.title, match.title, 'Без названия');
-      final artist = _metadataValue(
-        track.artist,
-        match.artist,
-        'Неизвестный исполнитель',
-      );
-      final artworkUrl = track.artworkUrl ?? match.artworkUrl;
-
       final baseDir =
           await getExternalStorageDirectory() ??
           await getApplicationDocumentsDirectory();
@@ -194,26 +195,45 @@ class Mp3DownloadService {
 
       final fileName = _safeFileName('$artist - $title');
       outputFile = _uniqueFile(outputDir, fileName, 'mp3');
+      rawMp3 = File('${outputFile.path}.raw.mp3');
+      await _deleteQuietly(rawMp3);
 
-      coverFile = await _downloadCover(artworkUrl, tempDir);
+      // Обложку качаем, пока идёт конвертация. Это скрывает задержку сети.
+      final coverFuture = _downloadCover(artworkUrl, tempDir);
 
-      var converted = await _convertToMp3(
+      final converted = await _convertToMp3(
         sourceFile,
-        outputFile,
+        rawMp3,
         title: title,
         artist: artist,
-        cover: coverFile,
       );
-      if (!converted && coverFile != null) {
-        // Битая/неподдерживаемая обложка не должна ломать скачивание.
-        converted = await _convertToMp3(
-          sourceFile,
+      if (!converted || !await rawMp3.exists()) {
+        throw const DownloadException(
+          'Не удалось конвертировать трек в MP3. Попробуйте ещё раз.',
+        );
+      }
+
+      coverFile = await coverFuture;
+      if (coverFile != null) {
+        final withCover = await _attachCover(
+          rawMp3,
+          coverFile,
           outputFile,
           title: title,
           artist: artist,
         );
+        if (withCover) {
+          await _deleteQuietly(rawMp3);
+        } else {
+          // Битая обложка не должна ломать скачивание: оставляем MP3 без неё.
+          await _deleteQuietly(outputFile);
+          await rawMp3.rename(outputFile.path);
+        }
+      } else {
+        await rawMp3.rename(outputFile.path);
       }
-      if (!converted || !await outputFile.exists()) {
+
+      if (!await outputFile.exists() || await outputFile.length() == 0) {
         throw const DownloadException(
           'Не удалось конвертировать трек в MP3. Попробуйте ещё раз.',
         );
@@ -257,6 +277,7 @@ class Mp3DownloadService {
     } finally {
       await _deleteQuietly(sourceFile);
       await _deleteQuietly(coverFile);
+      await _deleteQuietly(rawMp3);
     }
   }
 
@@ -265,7 +286,6 @@ class Mp3DownloadService {
     File output, {
     required String title,
     required String artist,
-    File? cover,
   }) async {
     if (await output.exists()) {
       await _deleteQuietly(output);
@@ -276,21 +296,18 @@ class Mp3DownloadService {
       '-y',
       '-i',
       input.path,
-      if (cover != null) ...['-i', cover.path],
       '-map',
       '0:a:0',
-      if (cover != null) ...[
-        '-map',
-        '1:v:0',
-        '-c:v',
-        'copy',
-        '-disposition:v',
-        'attached_pic',
-      ],
       '-c:a',
       'libmp3lame',
       '-b:a',
       '192k',
+      // 9 — самый быстрый режим LAME. На 192 kbit/s разница в качестве
+      // практически незаметна, а конвертация идёт примерно вдвое быстрее.
+      '-compression_level',
+      '9',
+      '-map_metadata',
+      '-1',
       '-id3v2_version',
       '3',
       '-metadata',
@@ -299,12 +316,6 @@ class Mp3DownloadService {
       'artist=$artist',
       '-metadata',
       'album=Verde',
-      if (cover != null) ...[
-        '-metadata:s:v',
-        'title=Album cover',
-        '-metadata:s:v',
-        'comment=Cover (front)',
-      ],
       output.path,
     ];
 
@@ -328,22 +339,97 @@ class Mp3DownloadService {
     }
   }
 
+  /// Прикрепляет обложку отдельным быстрым проходом.
+  ///
+  /// Если подмешивать картинку во время перекодирования, FFmpeg размножает
+  /// один кадр обложки на всю длительность трека. На телефоне это занимает
+  /// до минуты. Копирование готового MP3 с обложкой — доли секунды.
+  Future<bool> _attachCover(
+    File audio,
+    File cover,
+    File output, {
+    required String title,
+    required String artist,
+  }) async {
+    if (await output.exists()) {
+      await _deleteQuietly(output);
+    }
+
+    final arguments = <String>[
+      '-hide_banner',
+      '-y',
+      '-i',
+      audio.path,
+      '-i',
+      cover.path,
+      '-map',
+      '0:a:0',
+      '-map',
+      '1:v:0',
+      '-c',
+      'copy',
+      '-disposition:v',
+      'attached_pic',
+      '-id3v2_version',
+      '3',
+      '-metadata',
+      'title=$title',
+      '-metadata',
+      'artist=$artist',
+      '-metadata',
+      'album=Verde',
+      '-metadata:s:v',
+      'title=Album cover',
+      '-metadata:s:v',
+      'comment=Cover (front)',
+      output.path,
+    ];
+
+    try {
+      final session = await FFmpegKit.executeWithArguments(arguments);
+      final returnCode = await session.getReturnCode();
+      if (ReturnCode.isSuccess(returnCode) && await output.exists()) {
+        return await output.length() > 0;
+      }
+
+      debugPrint(
+        'Mp3DownloadService: cover attach failed ($returnCode): '
+        '${await session.getOutput()}',
+      );
+      await _deleteQuietly(output);
+      return false;
+    } catch (error) {
+      debugPrint('Mp3DownloadService: cover attach error: $error');
+      await _deleteQuietly(output);
+      return false;
+    }
+  }
+
   Future<File?> _downloadCover(String? url, Directory tempDir) async {
     if (url == null || url.trim().isEmpty) return null;
 
     try {
       final response = await _http
           .get(Uri.parse(url))
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 5));
       if (response.statusCode != 200 || response.bodyBytes.isEmpty) return null;
 
-      final type = response.headers['content-type']?.toLowerCase() ?? '';
-      final extension = type.contains('png') ? 'png' : 'jpg';
+      final bytes = response.bodyBytes;
+      final isJpeg = bytes.length > 3 && bytes[0] == 0xFF && bytes[1] == 0xD8;
+      final isPng =
+          bytes.length > 8 &&
+          bytes[0] == 0x89 &&
+          bytes[1] == 0x50 &&
+          bytes[2] == 0x4E &&
+          bytes[3] == 0x47;
+      if (!isJpeg && !isPng) return null;
+
+      final extension = isPng ? 'png' : 'jpg';
       final file = File(
         '${tempDir.path}/verde_cover_'
         '${DateTime.now().microsecondsSinceEpoch}.$extension',
       );
-      await file.writeAsBytes(response.bodyBytes, flush: true);
+      await file.writeAsBytes(bytes, flush: true);
       return file;
     } catch (error) {
       debugPrint('Mp3DownloadService: cover download failed: $error');
