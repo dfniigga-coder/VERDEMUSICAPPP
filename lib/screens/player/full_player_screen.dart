@@ -71,15 +71,16 @@ class FullPlayerScreen extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.w700),
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   track.artist,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 15, color: AppTheme.textDim),
+                  style: const TextStyle(fontSize: 15, color: AppTheme.textDim),
                 ),
               ],
             ),
@@ -127,11 +128,7 @@ class _Artwork extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            Icon(
-              Icons.library_music,
-              size: 96,
-              color: Colors.white10,
-            ),
+            Icon(Icons.library_music, size: 96, color: Colors.white10),
             Text(
               track.title.isEmpty ? '?' : track.title[0].toUpperCase(),
               style: TextStyle(
@@ -222,7 +219,9 @@ class _ValueSeekBarState extends State<_ValueSeekBar> {
           child: Slider(
             value: max > 0 ? current.clamp(0.0, max).toDouble() : 0.0,
             max: max > 0 ? max : 1.0,
-            onChanged: max > 0 ? (value) => setState(() => _dragValue = value) : null,
+            onChanged: max > 0
+                ? (value) => setState(() => _dragValue = value)
+                : null,
             onChangeEnd: (value) {
               widget.player.seek(Duration(milliseconds: value.round()));
               setState(() => _dragValue = null);
@@ -235,16 +234,16 @@ class _ValueSeekBarState extends State<_ValueSeekBar> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                formatDuration(_dragValue == null
-                    ? widget.position
-                    : Duration(milliseconds: _dragValue!.round())),
-                style: const TextStyle(
-                    fontSize: 12, color: AppTheme.textDim),
+                formatDuration(
+                  _dragValue == null
+                      ? widget.position
+                      : Duration(milliseconds: _dragValue!.round()),
+                ),
+                style: const TextStyle(fontSize: 12, color: AppTheme.textDim),
               ),
               Text(
                 formatDuration(widget.duration),
-                style: const TextStyle(
-                    fontSize: 12, color: AppTheme.textDim),
+                style: const TextStyle(fontSize: 12, color: AppTheme.textDim),
               ),
             ],
           ),
@@ -292,7 +291,9 @@ class _Controls extends StatelessWidget {
         IconButton(
           onPressed: player.hasQueue ? player.cycleRepeat : null,
           icon: Icon(
-            player.isRepeatOne ? Icons.repeat_one_rounded : Icons.repeat_rounded,
+            player.isRepeatOne
+                ? Icons.repeat_one_rounded
+                : Icons.repeat_rounded,
           ),
           iconSize: 26,
           color: player.isRepeatAll || player.isRepeatOne

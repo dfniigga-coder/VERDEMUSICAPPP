@@ -28,8 +28,7 @@ Future<String?> showTextDialog(
             child: const Text('Отмена'),
           ),
           FilledButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(controller.text),
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
             child: Text(positiveLabel),
           ),
         ],

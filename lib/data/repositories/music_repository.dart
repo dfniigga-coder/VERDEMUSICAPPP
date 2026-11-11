@@ -90,12 +90,14 @@ class MusicRepository {
         'trending': Track.encodeList(data.trending),
         'underground': Track.encodeList(data.underground),
         'playlists': data.playlists
-            .map((c) => {
-                  'id': c.id,
-                  'title': c.title,
-                  'subtitle': c.subtitle,
-                  'art': c.artworkUrl,
-                })
+            .map(
+              (c) => {
+                'id': c.id,
+                'title': c.title,
+                'subtitle': c.subtitle,
+                'art': c.artworkUrl,
+              },
+            )
             .toList(),
       });
       await _prefs.setString(AppConstants.homeCacheKey, jsonEncode(json));
@@ -118,12 +120,16 @@ class MusicRepository {
           final id = c['id'];
           final title = c['title'];
           if (id is! String || title is! String) continue;
-          collections.add(Collection(
-            id: id,
-            title: title,
-            subtitle: c['subtitle'] is String ? c['subtitle'] as String : null,
-            artworkUrl: c['art'] is String ? c['art'] as String : null,
-          ));
+          collections.add(
+            Collection(
+              id: id,
+              title: title,
+              subtitle: c['subtitle'] is String
+                  ? c['subtitle'] as String
+                  : null,
+              artworkUrl: c['art'] is String ? c['art'] as String : null,
+            ),
+          );
         }
       }
       return HomeData(
@@ -137,5 +143,3 @@ class MusicRepository {
     }
   }
 }
-
-

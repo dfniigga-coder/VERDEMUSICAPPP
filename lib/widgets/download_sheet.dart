@@ -240,7 +240,9 @@ class _Status extends StatelessWidget {
         ClipRRect(
           borderRadius: BorderRadius.circular(3),
           child: LinearProgressIndicator(
-            value: determinate ? progress : null,
+            // Без анимации: пока прогресс неизвестен, показываем пустую
+            // шкалу, а не бегущую зелёную полоску.
+            value: determinate ? progress : 0,
             minHeight: 5,
           ),
         ),
@@ -285,7 +287,7 @@ class DownloadProgressBanner extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           LinearProgressIndicator(
-            value: determinate ? task.progress : null,
+            value: determinate ? task.progress : 0,
             minHeight: 2,
           ),
           Padding(

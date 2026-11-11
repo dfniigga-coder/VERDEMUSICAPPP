@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -72,20 +71,53 @@ class YoutubeService {
   /// музыкальные вещи (сюиты, живые джемы) остаются доступными.
   static const int _minDurationSec = 20;
   static const int _maxDurationSec = 60 * 60;
-  static const Duration _manifestTimeout = Duration(seconds: 25);
+  static const Duration _manifestTimeout = Duration(seconds: 15);
 
   /// Таймауты скачивания аудио. Длинный таймаут здесь опасен: при
   /// заблокированном googlevideo прогресс просто стоит на нуле.
-  static const Duration _headersTimeout = Duration(seconds: 8);
-  static const Duration _chunkTimeout = Duration(seconds: 20);
-
-  /// YouTube без PO-токена отдаёт только небольшие куски файла.
-  /// 64 КиБ — проверенный размер, который проходит для таких ссылок.
-  static const int _directChunkBytes = 64 * 1024;
+  static const Duration _headersTimeout = Duration(seconds: 5);
+  static const Duration _chunkTimeout = Duration(seconds: 12);
 
   static const String _browserUserAgent =
       'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36';
+
+  /// Заголовки для just_audio.
+  ///
+  /// Invidious отдаёт поток только браузерному клиенту. just_audio видит
+  /// заголовки в [AudioSource.uri] и сам поднимает локальный HTTP-прокси,
+  /// который пробрасывает Range и редиректы.
+  static const Map<String, String> streamHeaders = {
+    'User-Agent': _browserUserAgent,
+    'Accept': 'audio/*,video/*,application/octet-stream;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'identity',
+  };
+
+  /// VISIONOS-клиент YouTube.
+  ///
+  /// Обычные Android/iOS-клиенты без PO-токена отдают 403 почти на всех
+  /// музыкальных видео. VISIONOS вместе с watch page возвращает полноценные
+  /// HTTPS-аудиопотоки, которые скачиваются одним быстрым range-запросом.
+  static const YoutubeApiClient _visionOsClient = YoutubeApiClient({
+    'context': {
+      'client': {
+        'clientName': 'VISIONOS',
+        'clientVersion': '1.02',
+        'deviceMake': 'Apple',
+        'deviceModel': 'RealityDevice17,1',
+        'userAgent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) '
+            'AppleWebKit/605.1.15 (KHTML, like Gecko) '
+            'Version/26.0 Safari/605.1.15',
+        'osName': 'visionOS',
+        'osVersion': '26.5.23O471',
+        'hl': 'en',
+        'timeZone': 'UTC',
+        'utcOffsetMinutes': 0,
+      },
+    },
+  }, 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false');
 
   /// Публичные Invidious-инстансы умеют проксировать аудио через себя
   /// (`local=true`) и подставляют PO-токен. Поэтому они работают там,
@@ -109,6 +141,7 @@ class YoutubeService {
   List<Track> _cachedSearchResults = const [];
   DateTime? _cachedSearchAt;
 
+  /// Рабочий Invidious-хост для быстрого старта воспроизведения.
   String? _activeInvidiousHost;
 
   bool _disposed = false;
@@ -292,42 +325,125 @@ class YoutubeService {
     );
   }
 
-  /// Прямой аудиопоток для just_audio.
+  /// URL аудиопотока для just_audio.
   ///
-  /// По умолчанию выбирается MP4/AAC: он максимально совместим с Android.
-  /// Сам поток идёт через Invidious-прокси: обычные googlevideo-ссылки
-  /// без PO-токена отдают только первые ~1 МБ и обрываются.
-  Future<YoutubeAudio?> audioFor(
-    String videoId, {
-    bool preferMp4 = true,
+  /// Манифест YouTube здесь намеренно не запрашивается: он добавляет
+  /// 1–2 секунды к старту, а Invidious всё равно отдаёт файл через
+  /// собственный прокси. Вместе с URL нужно передать [streamHeaders].
+  String playbackUrl(String videoId, {bool preferMp4 = true}) {
+    final host = _activeInvidiousHost ?? _invidiousFallbackHosts.first;
+    return _invidiousStreamUrl(videoId, preferMp4 ? 140 : 251, host: host);
+  }
+
+  /// Выбирает первый ответивший Invidious-хост.
+  ///
+  /// Если рабочий хост уже известен, возврат мгновенный. На холодном
+  /// старте проверка ограничена 1,8 секунды: лучше начать воспроизведение
+  /// через первый хост, чем задерживать его ожиданием зеркал.
+  Future<String> ensurePlaybackHost({
+    String? videoId,
+    Duration timeout = const Duration(milliseconds: 1800),
   }) async {
-    final info = await _streamInfo(videoId, preferMp4: preferMp4);
-    if (info == null) return null;
-    final useMp4 = preferMp4 && info.container.name == 'mp4';
-    return YoutubeAudio(
-      videoId: videoId,
-      url: _invidiousStreamUrl(videoId, useMp4 ? 140 : 251),
-      container: useMp4 ? 'mp4' : 'webm',
-      bitrateBps: info.bitrate.bitsPerSecond,
-      sizeBytes: info.size.totalBytes,
+    final active = _activeInvidiousHost;
+    if (active != null) return active;
+
+    final id = videoId?.trim();
+    if (id == null || id.isEmpty) return _invidiousFallbackHosts.first;
+
+    final completer = Completer<String>();
+    var pending = _invidiousFallbackHosts.length;
+
+    for (final host in _invidiousFallbackHosts) {
+      unawaited(
+        _probeHost(host, id)
+            .then((ok) {
+              if (ok && !completer.isCompleted) {
+                _activeInvidiousHost = host;
+                completer.complete(host);
+              }
+            })
+            .catchError((Object error) {
+              debugPrint('YoutubeService: probe $host failed: $error');
+            })
+            .whenComplete(() {
+              pending--;
+              if (pending == 0 && !completer.isCompleted) {
+                completer.complete(_invidiousFallbackHosts.first);
+              }
+            }),
+      );
+    }
+
+    return completer.future.timeout(
+      timeout,
+      onTimeout: () => _activeInvidiousHost ?? _invidiousFallbackHosts.first,
     );
   }
 
-  String _invidiousStreamUrl(String videoId, int itag) {
-    final host = _activeInvidiousHost ?? _invidiousFallbackHosts.first;
-    return Uri.parse('$host/latest_version')
+  /// Прогревает выбор хоста до первого нажатия «Играть».
+  Future<void> warmUpPlaybackHost() =>
+      ensurePlaybackHost(videoId: 'dQw4w9WgXcQ');
+
+  Future<bool> _probeHost(String host, String videoId) async {
+    final uri = Uri.parse(
+      '$host/latest_version',
+    ).replace(queryParameters: {'id': videoId, 'itag': '140', 'local': 'true'});
+    final request = http.Request('GET', uri);
+    request.headers.addAll({
+      ...streamHeaders,
+      'Range': 'bytes=0-0',
+      'Referer': '$host/watch?v=$videoId',
+    });
+
+    final response = await _http
+        .send(request)
+        .timeout(const Duration(seconds: 4));
+    final status = response.statusCode;
+    final contentType =
+        response.headers['content-type']?.toLowerCase().trim() ?? '';
+    await _drainQuietly(response);
+
+    return (status == 200 || status == 206) &&
+        !contentType.startsWith('text/') &&
+        !contentType.contains('html') &&
+        !contentType.contains('json');
+  }
+
+  String _invidiousStreamUrl(String videoId, int itag, {String? host}) {
+    final base = host ?? _activeInvidiousHost ?? _invidiousFallbackHosts.first;
+    return Uri.parse('$base/latest_version')
         .replace(
           queryParameters: {'id': videoId, 'itag': '$itag', 'local': 'true'},
         )
         .toString();
   }
 
+  /// Прямой аудиопоток для just_audio.
+  ///
+  /// По умолчанию выбирается MP4/AAC: он максимально совместим с Android.
+  /// URL берётся из VISIONOS-манифеста и кэшируется на час, поэтому
+  /// последующее скачивание не тратит время на повторный манифест.
+  Future<YoutubeAudio?> audioFor(
+    String videoId, {
+    bool preferMp4 = true,
+  }) async {
+    final info = await _streamInfo(videoId, preferMp4: preferMp4);
+    if (info == null) return null;
+    return YoutubeAudio(
+      videoId: videoId,
+      url: info.url.toString(),
+      container: info.container.name,
+      bitrateBps: info.bitrate.bitsPerSecond,
+      sizeBytes: info.size.totalBytes,
+    );
+  }
+
   /// Скачивает аудиодорожку во временный файл.
   ///
-  /// Сначала используется Invidious: его прокси присылает готовый поток
-  /// с PO-токеном и не зависит от того, отдаёт ли googlevideo файл
-  /// напрямую. Если прокси недоступен, включается прямой запасной путь:
-  /// свежий манифест YouTube и загрузка небольшими range-кусками.
+  /// Основной путь — прямой VISIONOS-поток: один HTTPS range-запрос на весь
+  /// файл. Invidious остаётся только аварийным вариантом, потому что
+  /// публичные зеркала часто отдают HTML-проверку вместо аудио и могут
+  /// задерживать загрузку на десятки секунд.
   ///
   /// [onProgress] получает 0.0–1.0, если известен размер файла.
   Future<File> downloadAudio(
@@ -340,27 +456,11 @@ class YoutubeService {
     final stamp = DateTime.now().microsecondsSinceEpoch;
     final base = '${directory.path}/verde_${stamp}_$safeId';
 
-    // Пока устанавливаем соединение с зеркалом, процент ещё неизвестен.
-    // Неопределённый прогресс лучше, чем «застывшие» 0%.
+    // Пока получаем манифест, процент ещё неизвестен. Неопределённый
+    // прогресс лучше, чем «застывшие» 0%.
     onProgress?.call(null);
 
-    // 1. Основной путь: прокси Invidious. Он медленнее прямого YouTube
-    // примерно на секунду, зато не зависает на нулевом прогрессе.
-    try {
-      final file = await _downloadFromInvidious(
-        videoId,
-        base,
-        onProgress: onProgress,
-      );
-      if (file != null) return file;
-    } catch (error) {
-      debugPrint('YoutubeService: Invidious failed for $videoId: $error');
-    }
-
-    // 2. Запасной путь: прямой YouTube. Некоторые видео отдают полный
-    // файл только с PO-токеном, поэтому качаем маленькими кусками —
-    // такие запросы YouTube принимает и без токена.
-    onProgress?.call(null);
+    // 1. Основной путь: прямой VISIONOS-поток одним range-запросом.
     Object? lastError;
     for (var attempt = 0; attempt < 2; attempt++) {
       File? directFile;
@@ -368,7 +468,9 @@ class YoutubeService {
         final info = await _streamInfo(
           videoId,
           preferMp4: false,
-          forceRefresh: true,
+          // Первая попытка может использовать уже закэшированный URL,
+          // вторая — только что полученный манифест.
+          forceRefresh: attempt > 0,
         );
         if (info == null) {
           throw const YoutubeException('Не удалось получить аудио с YouTube.');
@@ -389,9 +491,22 @@ class YoutubeService {
         _audioCache.remove(_cacheKey(videoId, preferMp4: false));
         if (attempt == 0) {
           debugPrint('YoutubeService: direct retry for $videoId: $error');
-          continue;
         }
       }
+    }
+
+    // 2. Аварийный путь: публичный Invidious-прокси.
+    onProgress?.call(null);
+    try {
+      final file = await _downloadFromInvidious(
+        videoId,
+        base,
+        onProgress: onProgress,
+      );
+      if (file != null) return file;
+    } catch (error) {
+      lastError = error;
+      debugPrint('YoutubeService: Invidious failed for $videoId: $error');
     }
 
     debugPrint('YoutubeService: download failed for $videoId: $lastError');
@@ -429,7 +544,6 @@ class YoutubeService {
             onProgress: onProgress,
           );
           if (downloaded) {
-            _activeInvidiousHost = host;
             return file;
           }
         } catch (error) {
@@ -519,10 +633,10 @@ class YoutubeService {
     return true;
   }
 
-  /// Прямая загрузка с googlevideo маленькими range-кусками.
+  /// Прямая загрузка с googlevideo одним range-запросом.
   ///
-  /// Это обход двух проблем: зависания stream-обёртки youtube_explode
-  /// и ограничения YouTube на размер range-запроса без PO-токена.
+  /// VISIONOS-ссылки отдают весь файл без 64-килобайтных ограничений,
+  /// поэтому не нужно делать десятки последовательных запросов.
   Future<void> _downloadDirect(
     AudioOnlyStreamInfo info,
     File file, {
@@ -532,9 +646,17 @@ class YoutubeService {
     if (total <= 0) {
       throw const YoutubeException('YouTube не сообщил размер аудио.');
     }
+    if (_disposed) {
+      throw const YoutubeException('Загрузка отменена.');
+    }
 
-    final source = info.url;
-    final android = source.queryParameters['c']?.toUpperCase() == 'ANDROID';
+    final response = await _sendDirectRange(info.url, from: 0, to: total - 1);
+    final status = response.statusCode;
+    if (status != 200 && status != 206) {
+      await _drainQuietly(response);
+      throw HttpException('YouTube: HTTP $status');
+    }
+
     final sink = file.openWrite();
     var received = 0;
     var lastProgressAt = -1000;
@@ -542,56 +664,17 @@ class YoutubeService {
 
     try {
       onProgress?.call(0);
-      while (received < total) {
-        if (_disposed) {
-          throw const YoutubeException('Загрузка отменена.');
+      await for (final chunk in response.stream.timeout(_chunkTimeout)) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (received > total) {
+          throw const YoutubeException('YouTube вернул больше, чем нужно.');
         }
 
-        final from = received;
-        final to = math.min(from + _directChunkBytes, total) - 1;
-        final response = await _sendDirectRange(
-          source,
-          from: from,
-          to: to,
-          android: android,
-        );
-
-        final status = response.statusCode;
-        if (status != 200 && status != 206) {
-          await _drainQuietly(response);
-          throw HttpException('YouTube: HTTP $status');
-        }
-        if (status == 200 && from > 0) {
-          await _drainQuietly(response);
-          throw const YoutubeException(
-            'YouTube проигнорировал диапазон загрузки.',
-          );
-        }
-
-        // Если сервер вернул 200 на первый кусок, он отдаёт файл целиком.
-        // Это допустимо — просто дочитываем его до конца.
-        final allowFull = status == 200 && from == 0;
-        var rangeReceived = 0;
-        await for (final chunk in response.stream.timeout(_chunkTimeout)) {
-          sink.add(chunk);
-          received += chunk.length;
-          rangeReceived += chunk.length;
-          if (!allowFull && received > to + 1) {
-            throw const YoutubeException('YouTube вернул лишние данные.');
-          }
-          if (received > total) {
-            throw const YoutubeException('YouTube вернул больше, чем нужно.');
-          }
-
-          final now = clock.elapsedMilliseconds;
-          if (now - lastProgressAt >= 100 || received >= total) {
-            lastProgressAt = now;
-            onProgress?.call((received / total).clamp(0.0, 1.0));
-          }
-        }
-
-        if (rangeReceived == 0) {
-          throw const YoutubeException('YouTube прислал пустой кусок аудио.');
+        final now = clock.elapsedMilliseconds;
+        if (now - lastProgressAt >= 100 || received >= total) {
+          lastProgressAt = now;
+          onProgress?.call((received / total).clamp(0.0, 1.0));
         }
       }
       await sink.flush();
@@ -608,40 +691,30 @@ class YoutubeService {
     Uri source, {
     required int from,
     required int to,
-    required bool android,
   }) async {
-    var target = source;
-    if (!android) {
-      target = source.replace(
-        queryParameters: {...source.queryParameters, 'range': '$from-$to'},
-      );
-    }
-
     Future<http.StreamedResponse> send(Uri uri) {
       final request = http.Request('GET', uri);
       request.headers.addAll(YoutubeHttpClient.defaultHeaders);
       request.headers['accept'] = '*/*';
       request.headers['accept-encoding'] = 'identity';
-      if (android) {
-        request.headers['Range'] = 'bytes=$from-$to';
-      }
+      request.headers['Range'] = 'bytes=$from-$to';
       return _http.send(request).timeout(_headersTimeout);
     }
 
     try {
-      final response = await send(target);
+      final response = await send(source);
       // Блокировка конкретного rr-хоста часто выглядит как 403/410.
       // Пробуем тот же подписанный запрос через redirector.
       if ((response.statusCode == 403 || response.statusCode == 410) &&
-          target.host != 'redirector.googlevideo.com') {
+          source.host != 'redirector.googlevideo.com') {
         await _drainQuietly(response);
-        return await send(target.replace(host: 'redirector.googlevideo.com'));
+        return await send(source.replace(host: 'redirector.googlevideo.com'));
       }
       return response;
     } catch (error) {
       // Иногда конкретный rr-хост заблокирован, а redirector работает.
-      final redirected = target.replace(host: 'redirector.googlevideo.com');
-      if (redirected.host == target.host) rethrow;
+      final redirected = source.replace(host: 'redirector.googlevideo.com');
+      if (redirected.host == source.host) rethrow;
       debugPrint('YoutubeService: host fallback for $from-$to: $error');
       return await send(redirected);
     }
@@ -712,9 +785,26 @@ class YoutubeService {
     String videoId, {
     required bool preferMp4,
   }) async {
-    final manifest = await _youtube.videos.streams
-        .getManifest(videoId, requireWatchPage: false)
-        .timeout(_manifestTimeout);
+    StreamManifest manifest;
+    try {
+      // VISIONOS без watch page отвечает «Sign in to confirm you're not a
+      // bot», поэтому watch page здесь обязательна.
+      manifest = await _youtube.videos.streams
+          .getManifest(
+            videoId,
+            requireWatchPage: true,
+            ytClients: [_visionOsClient],
+          )
+          .timeout(_manifestTimeout);
+    } catch (error) {
+      debugPrint(
+        'YoutubeService: VISIONOS manifest failed for $videoId: $error',
+      );
+      // Запасной вариант для видео, которым VISIONOS не подходит.
+      manifest = await _youtube.videos.streams
+          .getManifest(videoId, requireWatchPage: false)
+          .timeout(_manifestTimeout);
+    }
 
     final candidates = manifest.audioOnly
         .where((stream) => stream.url.toString().isNotEmpty)

@@ -16,21 +16,18 @@ class Playlist {
 
   bool contains(Track track) => tracks.any((t) => t.id == track.id);
 
-  Playlist copyWith({String? name, List<Track>? tracks}) => Playlist(
-        id: id,
-        name: name ?? this.name,
-        tracks: tracks ?? this.tracks,
-      );
+  Playlist copyWith({String? name, List<Track>? tracks}) =>
+      Playlist(id: id, name: name ?? this.name, tracks: tracks ?? this.tracks);
 
   Map<String, Object?> toJson() => {
-        'id': id,
-        'name': name,
-        'tracks': tracks.map((t) => t.toJson()).toList(),
-      };
+    'id': id,
+    'name': name,
+    'tracks': tracks.map((t) => t.toJson()).toList(),
+  };
 
   factory Playlist.fromJson(Map<dynamic, dynamic> json) => Playlist(
-        id: (json['id'] as String?) ?? '',
-        name: (json['name'] as String?) ?? 'Плейлист',
-        tracks: Track.listFromDynamic(json['tracks']),
-      );
+    id: (json['id'] as String?) ?? '',
+    name: (json['name'] as String?) ?? 'Плейлист',
+    tracks: Track.listFromDynamic(json['tracks']),
+  );
 }

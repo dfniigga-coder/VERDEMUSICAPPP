@@ -37,8 +37,9 @@ class MiniPlayerBar extends StatelessWidget {
                           child: ArtworkView(
                             size: 44,
                             url: track.artworkUrl,
-                            borderRadius:
-                                const BorderRadius.all(Radius.circular(8)),
+                            borderRadius: const BorderRadius.all(
+                              Radius.circular(8),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -121,8 +122,11 @@ class MiniPlayerBar extends StatelessWidget {
         final value = duration == null || duration.inMilliseconds == 0
             ? null
             : (position.inMilliseconds / duration.inMilliseconds)
-                .clamp(0.0, 1.0)
-                .toDouble();
+                  .clamp(0.0, 1.0)
+                  .toDouble();
+        // Пока длительность неизвестна, не показываем бегущую полоску:
+        // пустая линия фиксированной высоты сохраняет layout.
+        if (value == null) return const SizedBox(height: 2);
         return LinearProgressIndicator(
           value: value,
           minHeight: 2,

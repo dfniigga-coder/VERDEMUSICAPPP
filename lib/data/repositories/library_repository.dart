@@ -74,7 +74,10 @@ class LibraryRepository {
   }
 
   void deletePlaylist(String id) {
-    _playlists = [for (final p in _playlists) if (p.id != id) p];
+    _playlists = [
+      for (final p in _playlists)
+        if (p.id != id) p,
+    ];
     _savePlaylists();
   }
 

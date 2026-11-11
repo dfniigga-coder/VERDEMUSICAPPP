@@ -4,6 +4,7 @@ import 'package:just_audio/just_audio.dart';
 import '../core/errors/app_exceptions.dart';
 import '../data/models/track.dart';
 import '../data/repositories/music_repository.dart';
+import 'youtube_service.dart';
 
 /// Аудио-хендлер: связывает just_audio с audio_service.
 ///
@@ -12,7 +13,7 @@ import '../data/repositories/music_repository.dart';
 /// через [PlayerProvider], который оборачивает этот класс.
 class AudioPlayerHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
-  AudioPlayerHandler(this._musicRepo)
+  AudioPlayerHandler(this._musicRepo, this._youtube)
     : _player = AudioPlayer(maxSkipsOnError: 2) {
     // Транслируем состояние just_audio в уведомление/клиентов.
     _player.playbackEventStream.listen(
@@ -27,6 +28,7 @@ class AudioPlayerHandler extends BaseAudioHandler
   }
 
   final MusicRepository _musicRepo;
+  final YoutubeService _youtube;
 
   /// just_audio-плеер. UI читает его стримы (позиция, длительность) напрямую.
   final AudioPlayer _player;
@@ -57,6 +59,11 @@ class AudioPlayerHandler extends BaseAudioHandler
     _tracks
       ..clear()
       ..addAll(tracks);
+
+    // Держим очередь audio_service в том же порядке, что и _tracks:
+    // addToQueue/removeFromQueue/clearQueue работают с queue.value.
+    // Список должен быть изменяемым: QueueHandler добавляет элементы на месте.
+    queue.add([for (final t in tracks) _mediaItemFor(t)]);
 
     final sources = <AudioSource>[for (final t in tracks) _sourceFor(t)];
 
@@ -113,6 +120,7 @@ class AudioPlayerHandler extends BaseAudioHandler
     }
 
     _tracks[index] = resolved;
+    _updateQueueItemAt(index, resolved);
     final sources = <AudioSource>[
       for (final track in _tracks) _sourceFor(track),
     ];
@@ -123,6 +131,43 @@ class AudioPlayerHandler extends BaseAudioHandler
     );
     _updateCurrentMediaItem(index);
     await _player.play();
+  }
+
+  /// Заменяет трек в очереди, не сбрасывая остальные источники.
+  ///
+  /// Нужен для фонового апгрейда 30-секундного превью до полной версии.
+  /// Если трек сейчас играет, источник перезапускается с начала: у превью
+  /// и полной версии разные временные шкалы, поэтому сохранять позицию
+  /// бессмысленно.
+  Future<void> replaceTrack(Track original, Track replacement) async {
+    final index = _tracks.indexWhere((track) => track.id == original.id);
+    if (index < 0) return;
+
+    // Источник строим до изменения списка: если он недоступен, очередь
+    // остаётся прежней и текущее воспроизведение не прерывается.
+    final source = _sourceFor(replacement);
+    final current = _player.currentIndex;
+
+    _tracks[index] = replacement;
+    _updateQueueItemAt(index, replacement);
+
+    if (index == current) {
+      final wasPlaying = _player.playing;
+      final sources = <AudioSource>[
+        for (final track in _tracks) _sourceFor(track),
+      ];
+      await _player.setAudioSources(
+        sources,
+        initialIndex: index,
+        initialPosition: Duration.zero,
+      );
+      _updateCurrentMediaItem(index);
+      if (wasPlaying) await _player.play();
+      return;
+    }
+
+    await _player.removeAudioSourceAt(index);
+    await _player.insertAudioSource(index, source);
   }
 
   /// Убирает трек из очереди. Текущий трек удалить нельзя.
@@ -237,10 +282,20 @@ class AudioPlayerHandler extends BaseAudioHandler
   // --- Вспомогательное -----------------------------------------------------
 
   AudioSource _sourceFor(Track track) {
-    if (track.source == TrackSource.youtube &&
-        (track.streamUrl == null || track.streamUrl!.isEmpty)) {
-      throw const TrackLoadException(
-        'Аудиопоток YouTube ещё не получен. Попробуйте снова.',
+    if (track.source == TrackSource.youtube) {
+      // videoId приоритетнее streamUrl: у полной версии из ResolvedTrack
+      // в streamUrl мог остаться 30-секундный URL превью. Invidious-ссылку
+      // строим здесь, без запроса манифеста.
+      final url = _youtubeUrlFor(track);
+      if (url == null) {
+        throw const TrackLoadException(
+          'У трека нет идентификатора YouTube. Выберите другой результат.',
+        );
+      }
+      // just_audio сам поднимет локальный прокси и пробросит Range.
+      return AudioSource.uri(
+        Uri.parse(url),
+        headers: YoutubeService.streamHeaders,
       );
     }
 
@@ -259,6 +314,25 @@ class AudioPlayerHandler extends BaseAudioHandler
     }
 
     throw const TrackLoadException('У трека нет источника воспроизведения.');
+  }
+
+  /// URL для YouTube-трека: videoId → Invidious, иначе готовый streamUrl.
+  String? _youtubeUrlFor(Track track) {
+    final videoId = track.externalId;
+    if (videoId != null && videoId.isNotEmpty) {
+      return _youtube.playbackUrl(videoId);
+    }
+    final streamUrl = track.streamUrl;
+    if (streamUrl != null && streamUrl.isNotEmpty) return streamUrl;
+    return null;
+  }
+
+  void _updateQueueItemAt(int index, Track track) {
+    final items = queue.value.toList();
+    if (index < 0 || index >= items.length) return;
+    items[index] = _mediaItemFor(track);
+    // Без List.unmodifiable: QueueHandler меняет список на месте.
+    queue.add(items);
   }
 
   MediaItem _mediaItemFor(Track track) {

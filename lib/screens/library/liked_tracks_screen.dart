@@ -22,8 +22,7 @@ class LikedTracksScreen extends StatelessWidget {
         body: const EmptyState(
           icon: Icons.favorite_border,
           title: 'Пока ничего не понравилось',
-          subtitle:
-              'Ставьте «сердечки» трекам — они соберутся здесь и останутся после перезапуска',
+          subtitle: 'Ставьте «сердечки» трекам — они соберутся здесь и останутся после перезапуска',
         ),
       );
     }
@@ -38,9 +37,10 @@ class LikedTracksScreen extends StatelessWidget {
           return TrackTile(
             track: track,
             onTap: () {
-              context
-                  .read<PlayerProvider>()
-                  .playTracks(tracks, startIndex: index);
+              context.read<PlayerProvider>().playTracks(
+                tracks,
+                startIndex: index,
+              );
             },
             onLongPress: () {
               showTrackMenu(context, track: track);

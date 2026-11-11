@@ -19,17 +19,14 @@ class SectionHeader extends StatelessWidget {
         children: [
           Text(
             title,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(context).textTheme.titleLarge
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           if (subtitle != null) ...[
             const SizedBox(height: 2),
             Text(
               subtitle!,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
+              style: Theme.of(context).textTheme.bodySmall
                   ?.copyWith(color: AppTheme.textDim),
             ),
           ],
@@ -55,11 +52,7 @@ class ErrorView extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.cloud_off,
-              size: 56,
-              color: AppTheme.textDim,
-            ),
+            Icon(Icons.cloud_off, size: 56, color: AppTheme.textDim),
             const SizedBox(height: 16),
             Text(
               message,
@@ -116,17 +109,12 @@ class EmptyState extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 subtitle!,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
+                style: Theme.of(context).textTheme.bodySmall
                     ?.copyWith(color: AppTheme.textDim),
                 textAlign: TextAlign.center,
               ),
             ],
-            if (action != null) ...[
-              const SizedBox(height: 20),
-              action!,
-            ],
+            if (action != null) ...[const SizedBox(height: 20), action!],
           ],
         ),
       ),
@@ -151,9 +139,7 @@ class LoadingView extends StatelessWidget {
             const SizedBox(height: 16),
             Text(
               message!,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
+              style: Theme.of(context).textTheme.bodySmall
                   ?.copyWith(color: AppTheme.textDim),
             ),
           ],

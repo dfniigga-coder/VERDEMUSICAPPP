@@ -7,6 +7,7 @@ import '../../providers/player_provider.dart';
 import '../../services/recommendation_service.dart';
 import '../../widgets/common.dart';
 import '../../widgets/track_card.dart';
+import '../../widgets/verde_logo.dart';
 
 /// Главная в стиле YouTube Music: горизонтальные секции рекомендаций.
 ///
@@ -132,15 +133,8 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Verde',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-              ),
-            ),
-            SizedBox(height: 2),
+            VerdeLogo(markSize: 30, fontSize: 30),
+            SizedBox(height: 6),
             Text(
               'На основе вашей музыки',
               style: TextStyle(color: AppTheme.textDim, fontSize: 14),

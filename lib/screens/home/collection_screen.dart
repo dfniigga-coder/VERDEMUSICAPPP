@@ -10,6 +10,7 @@ import '../../providers/player_provider.dart';
 import '../../widgets/artwork.dart';
 import '../../widgets/common.dart';
 import '../../widgets/track_tile.dart';
+
 /// Содержимое подборки Audius (плейлист из раздела «Подборки»).
 class CollectionScreen extends StatefulWidget {
   final Collection collection;
@@ -66,9 +67,11 @@ class _CollectionScreenState extends State<CollectionScreen> {
   void _playTracksShuffled(List<Track> tracks) {
     if (tracks.isEmpty) return;
     final index = DateTime.now().millisecondsSinceEpoch ~/ 1000 % tracks.length;
-    context
-        .read<PlayerProvider>()
-        .playTracks(tracks, startIndex: index, shuffle: true);
+    context.read<PlayerProvider>().playTracks(
+      tracks,
+      startIndex: index,
+      shuffle: true,
+    );
   }
 
   @override
@@ -141,8 +144,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                 Row(
                   children: [
                     FilledButton.icon(
-                      onPressed:
-                          tracks.isEmpty ? null : () => _play(tracks, 0),
+                      onPressed: tracks.isEmpty ? null : () => _play(tracks, 0),
                       icon: const Icon(Icons.play_arrow_rounded),
                       label: const Text('Слушать'),
                     ),

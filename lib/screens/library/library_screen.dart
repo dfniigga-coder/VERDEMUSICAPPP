@@ -143,9 +143,8 @@ class LibraryScreen extends StatelessWidget {
   }
 
   void _openSettings(BuildContext context) {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
+    Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
   }
 
   Future<void> _pickFiles(BuildContext context) async {

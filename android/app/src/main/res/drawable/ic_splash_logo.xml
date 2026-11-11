@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Логотип на splash-экране; фон задаёт launch_background. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="1.8"
+        android:scaleY="1.8"
+        android:translateX="28.67"
+        android:translateY="21.6">
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#1DB954"
+            android:strokeWidth="1.2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="m23.566,1.398l-9.495,9.504h9.495V1.398v2.602V1.398Zm-9.496,9.504L4.574,1.398v9.504h9.496Zm-.021-10.902v36m9.517-15.596l-9.495-9.504v13.625l9.495,9.504v-13.625Zm-18.991,0l9.496-9.504v13.625l-9.496,9.504v-13.625ZM.5,10.9v13.57h4.074v-4.066l9.496-9.504H.5Zm13.57,0l9.495,9.504v4.066h4.075v-13.57h-13.57Z" />
+    </group>
+</vector>

@@ -33,11 +33,7 @@ class ArtworkView extends StatelessWidget {
         color: AppTheme.surfaceContainer,
         borderRadius: borderRadius,
       ),
-      child: Icon(
-        placeholderIcon,
-        size: size * 0.38,
-        color: AppTheme.textDim,
-      ),
+      child: Icon(placeholderIcon, size: size * 0.38, color: AppTheme.textDim),
     );
 
     if (url == null || url!.isEmpty) return placeholder;

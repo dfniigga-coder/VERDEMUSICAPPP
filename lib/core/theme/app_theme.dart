@@ -80,7 +80,10 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: const Color(0xFF16191C),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
         hintStyle: const TextStyle(color: textDim),
         labelStyle: const TextStyle(color: textDim),
         prefixIconColor: textDim,
@@ -157,7 +160,9 @@ class AppTheme {
         color: accentGreen,
         linearTrackColor: Color(0xFF2A2D31),
       ),
-      dividerTheme: DividerThemeData(color: Colors.white.withValues(alpha: 0.06)),
+      dividerTheme: DividerThemeData(
+        color: Colors.white.withValues(alpha: 0.06),
+      ),
     );
   }
 }

@@ -56,7 +56,8 @@ class PlaylistDetailsScreen extends StatelessWidget {
           ? EmptyState(
               icon: Icons.queue_music_outlined,
               title: 'Плейлист пуст',
-              subtitle: 'Нажмите «+», чтобы добавить треки из поиска или '
+              subtitle:
+                  'Нажмите «+», чтобы добавить треки из поиска или '
                   'с устройства',
               action: FilledButton.icon(
                 onPressed: () => _addTracks(context),
@@ -69,37 +70,38 @@ class PlaylistDetailsScreen extends StatelessWidget {
               itemCount: playlist.tracks.length + 1,
               itemBuilder: (context, index) {
                 if (index == 0) {
-                  return _Header(playlistName: playlist.name,
-                      trackCount: playlist.trackCount);
+                  return _Header(
+                    playlistName: playlist.name,
+                    trackCount: playlist.trackCount,
+                  );
                 }
                 final track = playlist.tracks[index - 1];
                 final trackIndex = index - 1;
                 return TrackTile(
                   track: track,
                   onTap: () => context.read<PlayerProvider>().playTracks(
-                        playlist.tracks,
-                        startIndex: trackIndex,
-                      ),
+                    playlist.tracks,
+                    startIndex: trackIndex,
+                  ),
                   onLongPress: () => showTrackMenu(
                     context,
                     track: track,
                     onRemoved: () {
-                      context
-                          .read<LibraryProvider>()
-                          .removeTrackFromPlaylist(playlistId, track);
-                      showAppSnackBar(
-                        context,
-                        'Трек убран из плейлиста',
+                      context.read<LibraryProvider>().removeTrackFromPlaylist(
+                        playlistId,
+                        track,
                       );
+                      showAppSnackBar(context, 'Трек убран из плейлиста');
                     },
                   ),
                   trailing: IconButton(
                     icon: const Icon(Icons.close, size: 20),
                     color: AppTheme.textDim,
                     onPressed: () {
-                      context
-                          .read<LibraryProvider>()
-                          .removeTrackFromPlaylist(playlistId, track);
+                      context.read<LibraryProvider>().removeTrackFromPlaylist(
+                        playlistId,
+                        track,
+                      );
                       showAppSnackBar(context, 'Трек убран из плейлиста');
                     },
                     tooltip: 'Убрать из плейлиста',
@@ -129,9 +131,9 @@ class PlaylistDetailsScreen extends StatelessWidget {
                   Navigator.of(sheetContext).pop();
                   if (playlist.tracks.isNotEmpty) {
                     context.read<PlayerProvider>().playTracks(
-                          playlist.tracks,
-                          startIndex: 0,
-                        );
+                      playlist.tracks,
+                      startIndex: 0,
+                    );
                   }
                 },
               ),
@@ -142,10 +144,10 @@ class PlaylistDetailsScreen extends StatelessWidget {
                   Navigator.of(sheetContext).pop();
                   if (playlist.tracks.isNotEmpty) {
                     context.read<PlayerProvider>().playTracks(
-                          playlist.tracks,
-                          startIndex: 0,
-                          shuffle: true,
-                        );
+                      playlist.tracks,
+                      startIndex: 0,
+                      shuffle: true,
+                    );
                   }
                 },
               ),
@@ -161,9 +163,9 @@ class PlaylistDetailsScreen extends StatelessWidget {
                   );
                   if (name == null || !context.mounted) return;
                   context.read<LibraryProvider>().renamePlaylist(
-                        playlistId,
-                        name,
-                      );
+                    playlistId,
+                    name,
+                  );
                 },
               ),
               ListTile(
@@ -180,8 +182,7 @@ class PlaylistDetailsScreen extends StatelessWidget {
                   final ok = await showConfirmDialog(
                     context,
                     title: 'Удалить плейлист?',
-                    message:
-                        '«${playlist.name}» будет удалён безвозвратно.',
+                    message: '«${playlist.name}» будет удалён безвозвратно.',
                   );
                   if (!ok || !context.mounted) return;
                   context.read<LibraryProvider>().deletePlaylist(playlistId);
@@ -318,9 +319,10 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
 
   Future<void> _add(Track track) async {
     final messenger = ScaffoldMessenger.of(context);
-    final added = context
-        .read<LibraryProvider>()
-        .addTrackToPlaylist(widget.playlistId, track);
+    final added = context.read<LibraryProvider>().addTrackToPlaylist(
+      widget.playlistId,
+      track,
+    );
     messenger.showSnackBar(
       SnackBar(
         content: Text(added ? 'Добавлено в плейлист' : 'Трек уже в плейлисте'),
@@ -396,10 +398,7 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
     }
     if (_error != null) {
       return Center(
-        child: Text(
-          _error!,
-          style: const TextStyle(color: AppTheme.textDim),
-        ),
+        child: Text(_error!, style: const TextStyle(color: AppTheme.textDim)),
       );
     }
     if (_results.isEmpty) {
@@ -422,9 +421,11 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
     // Локальные треки дополнительно фильтруем по введённому тексту.
     final visible = _sourceIndex == 1 && _query.isNotEmpty
         ? _results
-            .where((t) =>
-                t.title.toLowerCase().contains(_query.trim().toLowerCase()))
-            .toList()
+              .where(
+                (t) =>
+                    t.title.toLowerCase().contains(_query.trim().toLowerCase()),
+              )
+              .toList()
         : _results;
 
     return ListView.builder(

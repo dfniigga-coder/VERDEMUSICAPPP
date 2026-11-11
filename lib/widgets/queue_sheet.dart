@@ -39,10 +39,7 @@ class _QueueSheet extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Очередь',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
+                Text('Очередь', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 4),
                 Text(
                   '${queue.length} ${queue.length == 1 ? 'трек' : 'треков'}',
@@ -66,8 +63,9 @@ class _QueueSheet extends StatelessWidget {
                     ),
                     const Spacer(),
                     TextButton.icon(
-                      onPressed:
-                          player.hasQueue ? () => player.clearQueue() : null,
+                      onPressed: player.hasQueue
+                          ? () => player.clearQueue()
+                          : null,
                       icon: const Icon(Icons.clear_all, size: 18),
                       label: const Text('Очистить'),
                     ),
@@ -152,17 +150,11 @@ class _QueueTile extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           fontWeight: FontWeight.w500,
-          color: isCurrent
-              ? AppTheme.accentGreen
-              : const Color(0xFFE9ECEA),
+          color: isCurrent ? AppTheme.accentGreen : const Color(0xFFE9ECEA),
         ),
       ),
       subtitle: Text(
-        '${track.artist} · ${formatDuration(
-          track.durationSec == null
-              ? null
-              : Duration(seconds: track.durationSec!),
-        )}',
+        '${track.artist} · ${formatDuration(track.durationSec == null ? null : Duration(seconds: track.durationSec!))}',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(color: AppTheme.textDim, fontSize: 12),
@@ -241,7 +233,10 @@ class _BarsState extends State<_Bars> with SingleTickerProviderStateMixin {
         const colors = AppTheme.accentGreen;
         return Row(
           children: [
-            _bar(0.3 + 0.7 * (0.5 + 0.5 * (t * 6 % 2 == 0 ? t : 1 - t)), colors),
+            _bar(
+              0.3 + 0.7 * (0.5 + 0.5 * (t * 6 % 2 == 0 ? t : 1 - t)),
+              colors,
+            ),
             const SizedBox(width: 2),
             _bar(0.3 + 0.7 * (0.5 + 0.5 * ((t * 4 + 0.3) % 2)), colors),
             const SizedBox(width: 2),
