@@ -181,7 +181,7 @@ class Mp3DownloadService {
       } catch (error) {
         debugPrint('Mp3DownloadService: download failed: $error');
         throw const DownloadException(
-          'Не удалось скачать аудио с YouTube. Попробуйте ещё раз.',
+          'Не удалось скачать аудио. Проверьте соединение и попробуйте ещё раз.',
         );
       }
 
