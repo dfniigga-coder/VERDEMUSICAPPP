@@ -343,7 +343,7 @@ class DownloadButton extends StatelessWidget {
     );
 
     return IconButton(
-      tooltip: downloading ? 'Скачивается…' : 'Скачать MP3',
+      tooltip: downloading ? 'Скачивается…' : 'Скачать трек',
       onPressed: downloading || another
           ? null
           : () => startDownloadWithSheet(context, track),
@@ -359,7 +359,7 @@ class DownloadButton extends StatelessWidget {
                     : null,
               ),
             )
-          : const Icon(Icons.download_for_offline_outlined),
+          : const Icon(Icons.cloud_download_outlined),
     );
   }
 }
