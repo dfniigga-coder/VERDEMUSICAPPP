@@ -36,6 +36,8 @@ class TrackTile extends StatelessWidget {
     return ListTile(
       onTap: onTap,
       onLongPress: onLongPress,
+      tileColor: isCurrent ? AppTheme.accentGreen.withValues(alpha: 0.08) : null,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       leading: _leading(),
       title: Text(
         track.title,

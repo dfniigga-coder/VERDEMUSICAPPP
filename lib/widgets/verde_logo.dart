@@ -19,7 +19,7 @@ class VerdeLogoMark extends StatelessWidget {
     super.key,
     this.size = 30,
     this.color = AppTheme.accentGreen,
-    this.strokeWidth = 2,
+    this.strokeWidth = 4,
   });
 
   @override

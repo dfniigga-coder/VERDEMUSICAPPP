@@ -60,6 +60,16 @@ class PlayerProvider extends ChangeNotifier {
       notifyListeners();
     });
 
+    _handler.player.positionStream.listen((position) {
+      _position = position;
+      notifyListeners();
+    });
+
+    _handler.player.durationStream.listen((duration) {
+      _duration = duration;
+      notifyListeners();
+    });
+
     // Ошибка загрузки трека: если можно, just_audio автоматически перейдёт
     // к следующему (maxSkipsOnError), о чём сообщаем пользователю.
     _handler.player.errorStream.listen((_) {
@@ -81,6 +91,8 @@ class PlayerProvider extends ChangeNotifier {
   bool _shuffle = false;
   LoopMode _loopMode = LoopMode.off;
   double _volume = 1.0;
+  Duration _position = Duration.zero;
+  Duration? _duration;
 
   /// Номер последнего запуска очереди. Нужен, чтобы запоздавший апгрейд
   /// превью не подменил трек уже другой очереди.
@@ -117,6 +129,9 @@ class PlayerProvider extends ChangeNotifier {
   bool get isShuffleEnabled => _shuffle;
 
   bool get isRepeatAll => _loopMode == LoopMode.all;
+
+  Duration get position => _position;
+  Duration? get duration => _duration;
 
   bool get isRepeatOne => _loopMode == LoopMode.one;
 

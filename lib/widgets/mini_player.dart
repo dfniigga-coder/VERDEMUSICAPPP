@@ -103,6 +103,27 @@ class MiniPlayerBar extends StatelessWidget {
                     ),
                   ),
                 ),
+                // Тонкая статичная полоска прогресса (без анимации/shimmer).
+                Builder(
+                  builder: (context) {
+                    final player = context.watch<PlayerProvider>();
+                    final duration = player.duration;
+                    final position = player.position;
+                    final value = (duration != null &&
+                            duration.inMilliseconds > 0)
+                        ? (position.inMilliseconds / duration.inMilliseconds)
+                            .clamp(0.0, 1.0)
+                        : null;
+                    return LinearProgressIndicator(
+                      value: value,
+                      minHeight: 2,
+                      backgroundColor: AppTheme.surfaceContainer,
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        AppTheme.accentGreen,
+                      ),
+                    );
+                  },
+                ),
               ],
             ),
           ),

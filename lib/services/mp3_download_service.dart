@@ -294,6 +294,8 @@ class Mp3DownloadService {
     final arguments = <String>[
       '-hide_banner',
       '-y',
+      '-threads',
+      '0',
       '-i',
       input.path,
       '-map',
@@ -358,6 +360,8 @@ class Mp3DownloadService {
     final arguments = <String>[
       '-hide_banner',
       '-y',
+      '-threads',
+      '0',
       '-i',
       audio.path,
       '-i',
