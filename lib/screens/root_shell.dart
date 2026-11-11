@@ -41,7 +41,7 @@ class _RootShellState extends State<RootShell> {
     _playerRef!.errorNotifier.addListener(_showPlayError);
     // И о завершении скачивания — тоже из любого таба.
     _downloadsRef = context.read<DownloadProvider>();
-    _downloadsRef!.notice.addListener(_showDownloadNotice);
+    _downloadsRef?.notice.addListener(_showDownloadNotice);
 
     // Ссылки из «Поделиться» YouTube Music и переходов по YouTube-ссылкам.
     _incomingLinkSubscription = _incomingLinks.links.listen(
@@ -129,7 +129,7 @@ class _RootShellState extends State<RootShell> {
     final downloads = _downloadsRef;
     final notice = downloads?.notice.value;
     if (notice == null) return;
-    downloads!.notice.value = null;
+    downloads?.notice.value = null;
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
