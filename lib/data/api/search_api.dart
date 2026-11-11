@@ -54,6 +54,12 @@ class SearchApi {
 
   static const Map<String, String> _headers = {'User-Agent': 'VerdeMusic/1.0'};
 
+  /// Кэш последних удачных выдач: повторный запрос открывается мгновенно,
+  /// а подборки на главной не дёргают одни и те же источники заново.
+  static const Duration _cacheTtl = Duration(minutes: 5);
+  static const int _maxCacheEntries = 40;
+  final Map<String, _CachedSearch> _cache = {};
+
   Future<SearchOutcome> search(String query) => searchSources(query);
 
   /// Поиск только по выбранным источникам.
@@ -61,12 +67,31 @@ class SearchApi {
   /// `sources == null` — все источники, как в обычном поиске. Рекомендации
   /// передают ограниченный набор, чтобы не дёргать Audius/Archive/Jamendo
   /// на каждый похожий трек и не упираться в rate limit.
+  ///
+  /// [onPartial] вызывается после ответа каждого источника. Благодаря этому
+  /// поиск показывает первые результаты сразу, не ожидая самый медленный
+  /// источник. Итоговый результат по-прежнему возвращается целиком.
   Future<SearchOutcome> searchSources(
     String query, {
     Set<TrackSource>? sources,
+    void Function(SearchOutcome outcome)? onPartial,
   }) async {
     final q = query.trim();
     if (q.isEmpty) return const SearchOutcome();
+
+    final cacheKey = _cacheKey(q, sources);
+    final cached = _cache[cacheKey];
+    if (cached != null) {
+      if (DateTime.now().difference(cached.createdAt) < _cacheTtl) {
+        try {
+          onPartial?.call(cached.outcome);
+        } catch (_) {
+          // Ошибка UI-колбэка не должна ломать поиск.
+        }
+        return cached.outcome;
+      }
+      _cache.remove(cacheKey);
+    }
 
     bool enabled(TrackSource source) =>
         sources == null || sources.contains(source);
@@ -104,13 +129,56 @@ class SearchApi {
       );
     }
 
-    final attempts = await Future.wait(futures);
+    if (futures.isEmpty) return const SearchOutcome();
+    final total = futures.length;
+    final attempts = <_SourceAttempt>[];
+
+    await Future.wait([
+      for (final future in futures)
+        future.then((attempt) {
+          attempts.add(attempt);
+          if (onPartial == null) return;
+
+          try {
+            onPartial(_outcome(attempts, q, total));
+          } catch (_) {
+            // Ошибка UI-колбэка не должна отменять сам поиск.
+          }
+        }),
+    ]);
+
+    final outcome = _outcome(attempts, q, total);
+    // Неполную выдачу не кэшируем: при повторе источник может ответить,
+    // и пользователь получит полные треки, а не только превью.
+    if (outcome.tracks.isNotEmpty && outcome.failedSources == 0) {
+      _cache[cacheKey] = _CachedSearch(outcome, DateTime.now());
+      if (_cache.length > _maxCacheEntries) {
+        _cache.remove(_cache.keys.first);
+      }
+    }
+    return outcome;
+  }
+
+  SearchOutcome _outcome(
+    List<_SourceAttempt> attempts,
+    String query,
+    int total,
+  ) {
     return SearchOutcome(
-      tracks: _merge(attempts, q),
-      attemptedSources: attempts.length,
-      failedSources: attempts.where((a) => a.failed).length,
-      networkFailures: attempts.where((a) => a.failed && a.network).length,
+      tracks: _merge(attempts, query),
+      attemptedSources: total,
+      failedSources: attempts.where((attempt) => attempt.failed).length,
+      networkFailures: attempts
+          .where((attempt) => attempt.failed && attempt.network)
+          .length,
     );
+  }
+
+  String _cacheKey(String query, Set<TrackSource>? sources) {
+    final sourceKey = sources == null
+        ? 'all'
+        : (sources.map((source) => source.name).toList()..sort()).join(',');
+    return '${_normalize(query)}|$sourceKey';
   }
 
   Future<_SourceAttempt> _attempt(
@@ -190,6 +258,25 @@ class SearchApi {
   String _normalize(String value) =>
       value.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
 
+  bool _titleMatches(String candidate, String wanted) {
+    final left = _normalize(candidate);
+    final right = _normalize(wanted);
+    if (left.isEmpty || right.isEmpty) return false;
+    return left == right || left.contains(right) || right.contains(left);
+  }
+
+  bool _artistMatches(String candidate, String wanted) {
+    final left = _normalize(candidate);
+    final right = _normalize(wanted);
+    if (left.isEmpty || right.isEmpty) return false;
+    if (left == right) return true;
+
+    final leftWords = left.split(' ');
+    final rightWords = right.split(' ');
+    return rightWords.every(leftWords.contains) ||
+        leftWords.every(rightWords.contains);
+  }
+
   int _relevance(Track track, String query) {
     final title = _normalize(track.title);
     final artist = _normalize(track.artist);
@@ -226,11 +313,11 @@ class SearchApi {
 
   // --- HTTP ----------------------------------------------------------------
 
-  Future<Map<String, dynamic>> _getJson(Uri uri) async {
+  Future<Map<String, dynamic>> _getJson(Uri uri, {Duration? timeout}) async {
     try {
       final response = await http
           .get(uri, headers: _headers)
-          .timeout(_sourceTimeout);
+          .timeout(timeout ?? _sourceTimeout);
       if (response.statusCode != 200) {
         throw ApiException(
           'Сервис вернул ошибку ${response.statusCode}.',
@@ -266,40 +353,160 @@ class SearchApi {
 
     final tracks = <Track>[];
     for (final raw in data.whereType<Map>()) {
-      final id = raw['id'];
-      final title = raw['title'];
-      final preview = raw['preview'];
-      if (id == null ||
-          title is! String ||
-          title.trim().isEmpty ||
-          preview is! String ||
-          preview.isEmpty) {
-        continue;
-      }
-
-      final artistData = raw['artist'];
-      final albumData = raw['album'];
-      final artist = artistData is Map && artistData['name'] is String
-          ? (artistData['name'] as String).trim()
-          : '';
-      final cover = albumData is Map && albumData['cover_big'] is String
-          ? albumData['cover_big'] as String
-          : null;
-
-      tracks.add(
-        Track.online(
-          source: TrackSource.deezer,
-          id: '$id',
-          title: title,
-          artist: artist.isEmpty ? 'Неизвестный исполнитель' : artist,
-          artworkUrl: cover,
-          streamUrl: preview,
-          durationSec: 30,
-          isPreview: true,
-        ),
-      );
+      final track = _deezerTrack(raw);
+      if (track != null) tracks.add(track);
     }
     return tracks;
+  }
+
+  /// Похожие треки без ключа Last.fm: Deezer знает связанных исполнителей,
+  /// а их популярные треки дают хорошую отправную точку для главной.
+  Future<List<Track>> deezerRelatedTracks(Track seed, {int limit = 12}) async {
+    final artistId = await _deezerArtistId(seed);
+    if (artistId == null) return const [];
+
+    final body = await _getJson(
+      Uri.https('api.deezer.com', '/artist/$artistId/related', {'limit': '6'}),
+      timeout: const Duration(seconds: 4),
+    );
+    final data = body['data'];
+    if (data is! List) return const [];
+
+    final relatedIds = <int>[];
+    final seenIds = <int>{};
+    for (final raw in data.whereType<Map>()) {
+      final id = raw['id'];
+      if (id is num && seenIds.add(id.toInt())) {
+        relatedIds.add(id.toInt());
+      }
+    }
+    if (relatedIds.isEmpty) return const [];
+
+    final lists = await Future.wait([
+      for (final id in relatedIds.take(5)) _deezerTopTracks(id, limit: 3),
+    ]);
+    final result = <Track>[];
+    final seen = <String>{_dedupeKey(seed)};
+    for (final track in lists.expand((list) => list)) {
+      if (!seen.add(_dedupeKey(track))) continue;
+      result.add(track);
+      if (result.length >= limit) break;
+    }
+    return result;
+  }
+
+  Future<int?> _deezerArtistId(Track seed) async {
+    final body = await _getJson(
+      Uri.https('api.deezer.com', '/search', {
+        'q': '${seed.title} ${seed.artist}',
+        'limit': '10',
+      }),
+      timeout: const Duration(seconds: 4),
+    );
+    if (body['error'] != null) return null;
+
+    final data = body['data'];
+    if (data is List) {
+      int? bestId;
+      var bestScore = -1;
+      for (final raw in data.whereType<Map>()) {
+        final artist = raw['artist'];
+        if (artist is! Map) continue;
+        final id = artist['id'];
+        if (id is! num) continue;
+
+        final title = raw['title']?.toString() ?? '';
+        final artistName = artist['name']?.toString() ?? '';
+        var score = 0;
+        if (_titleMatches(title, seed.title)) score += 2;
+        if (_artistMatches(artistName, seed.artist)) score += 3;
+        if (score > bestScore) {
+          bestScore = score;
+          bestId = id.toInt();
+        }
+      }
+      // Совпадения только по названию недостаточно: у каверов другой артист.
+      if (bestScore >= 3 && bestId != null) return bestId;
+    }
+
+    final artistBody = await _getJson(
+      Uri.https('api.deezer.com', '/search/artist', {
+        'q': seed.artist,
+        'limit': '5',
+      }),
+      timeout: const Duration(seconds: 4),
+    );
+    final artists = artistBody['data'];
+    if (artists is! List) return null;
+
+    int? fallbackId;
+    for (final raw in artists.whereType<Map>()) {
+      final id = raw['id'];
+      if (id is! num) continue;
+      final name = raw['name']?.toString() ?? '';
+      fallbackId ??= id.toInt();
+      if (_artistMatches(name, seed.artist)) return id.toInt();
+    }
+    return fallbackId;
+  }
+
+  Future<List<Track>> _deezerTopTracks(
+    int artistId, {
+    required int limit,
+  }) async {
+    try {
+      final body = await _getJson(
+        Uri.https('api.deezer.com', '/artist/$artistId/top', {
+          'limit': '$limit',
+        }),
+        timeout: const Duration(seconds: 4),
+      );
+      final data = body['data'];
+      if (data is! List) return const [];
+
+      final tracks = <Track>[];
+      for (final raw in data.whereType<Map>()) {
+        final track = _deezerTrack(raw);
+        if (track != null) tracks.add(track);
+      }
+      return tracks;
+    } catch (_) {
+      // Один проблемный исполнитель не должен обнулять всю подборку.
+      return const [];
+    }
+  }
+
+  Track? _deezerTrack(Map raw) {
+    final id = raw['id'];
+    final title = raw['title'];
+    final preview = raw['preview'];
+    if (id == null ||
+        title is! String ||
+        title.trim().isEmpty ||
+        preview is! String ||
+        preview.isEmpty) {
+      return null;
+    }
+
+    final artistData = raw['artist'];
+    final albumData = raw['album'];
+    final artist = artistData is Map && artistData['name'] is String
+        ? (artistData['name'] as String).trim()
+        : '';
+    final cover = albumData is Map && albumData['cover_big'] is String
+        ? albumData['cover_big'] as String
+        : null;
+
+    return Track.online(
+      source: TrackSource.deezer,
+      id: '$id',
+      title: title,
+      artist: artist.isEmpty ? 'Неизвестный исполнитель' : artist,
+      artworkUrl: cover,
+      streamUrl: preview,
+      durationSec: 30,
+      isPreview: true,
+    );
   }
 
   // --- iTunes --------------------------------------------------------------
@@ -519,4 +726,11 @@ class _ScoredTrack {
   final int score;
 
   const _ScoredTrack(this.track, this.score);
+}
+
+class _CachedSearch {
+  final SearchOutcome outcome;
+  final DateTime createdAt;
+
+  const _CachedSearch(this.outcome, this.createdAt);
 }

@@ -102,7 +102,19 @@ class SearchProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final outcome = await _searchApi.search(q);
+      final outcome = await _searchApi.searchSources(
+        q,
+        onPartial: (partial) {
+          if (seq != _seq) return; // устаревший ответ — игнорируем
+          if (partial.tracks.isEmpty) return;
+
+          // Показываем первые результаты сразу, не дожидаясь YouTube и
+          // Archive. Тонкий индикатор сверху сообщает, что поиск продолжается.
+          _results = partial.tracks;
+          _error = null;
+          notifyListeners();
+        },
+      );
       if (seq != _seq) return; // устаревший ответ — игнорируем
 
       _results = outcome.tracks;

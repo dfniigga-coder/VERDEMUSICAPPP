@@ -1,6 +1,7 @@
 package com.verde.music
 
 import android.content.ContentValues
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaScannerConnection
 import android.os.Build
@@ -8,12 +9,20 @@ import android.os.Environment
 import android.provider.MediaStore
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.IOException
 
 class MainActivity : AudioServiceActivity() {
     private val channelName = "com.verde.music/media_store"
+    private val linkChannelName = "com.verde.music/incoming_link"
+    private val linkEventChannelName =
+        "com.verde.music/incoming_link_events"
+
+    private var linkEventSink: EventChannel.EventSink? = null
+    private var pendingLink: String? = null
+    private var initialLinkConsumed = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -91,6 +100,80 @@ class MainActivity : AudioServiceActivity() {
                     )
                 }
             }
+
+        setupIncomingLinks(flutterEngine)
+    }
+
+    /** Каналы для ссылок из «Поделиться» и ACTION_VIEW. */
+    private fun setupIncomingLinks(flutterEngine: FlutterEngine) {
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
+
+        MethodChannel(messenger, linkChannelName)
+            .setMethodCallHandler { call, result ->
+                if (call.method != "getInitialLink") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+
+                if (initialLinkConsumed) {
+                    result.success(null)
+                    return@setMethodCallHandler
+                }
+                initialLinkConsumed = true
+                result.success(extractYoutubeLink(intent))
+            }
+
+        EventChannel(messenger, linkEventChannelName)
+            .setStreamHandler(
+                object : EventChannel.StreamHandler {
+                    override fun onListen(
+                        arguments: Any?,
+                        events: EventChannel.EventSink,
+                    ) {
+                        linkEventSink = events
+                        val link = pendingLink
+                        if (link != null) {
+                            pendingLink = null
+                            events.success(link)
+                        }
+                    }
+
+                    override fun onCancel(arguments: Any?) {
+                        linkEventSink = null
+                    }
+                },
+            )
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+
+        val link = extractYoutubeLink(intent) ?: return
+        val sink = linkEventSink
+        if (sink != null) {
+            sink.success(link)
+        } else {
+            pendingLink = link
+        }
+    }
+
+    /** Достаёт ссылку YouTube из ACTION_SEND / ACTION_VIEW. */
+    private fun extractYoutubeLink(intent: Intent?): String? {
+        if (intent == null) return null
+
+        val raw = when (intent.action) {
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
+            Intent.ACTION_VIEW -> intent.dataString
+            else -> null
+        }?.trim()
+
+        if (raw.isNullOrEmpty()) return null
+        val lower = raw.lowercase()
+        if (!lower.contains("youtube.com") && !lower.contains("youtu.be")) {
+            return null
+        }
+        return raw
     }
 
     /**

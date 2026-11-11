@@ -19,13 +19,14 @@ const Duration _requestTimeout = Duration(seconds: 8);
 Future<T?> safeRequest<T>(
   String label,
   Future<T> Function() request, {
+  Duration timeout = _requestTimeout,
   void Function(Object error)? onError,
 }) async {
   try {
-    return await request().timeout(_requestTimeout);
+    return await request().timeout(timeout);
   } on TimeoutException catch (error) {
     debugPrint(
-      '[RecommendationService] $label: таймаут ${_requestTimeout.inSeconds} с',
+      '[RecommendationService] $label: таймаут ${timeout.inSeconds} с',
     );
     onError?.call(error);
     return null;
@@ -99,6 +100,12 @@ class RecommendationService {
   static const Duration _repeatWindow = Duration(seconds: 45);
   static const Duration _listenAgainAfter = Duration(days: 3);
   static const Duration _artistWindow = Duration(days: 30);
+  static const Duration _similarCacheTtl = Duration(minutes: 20);
+  static const int _maxSimilarCacheEntries = 24;
+
+  /// Похожие для одного и того же семени не меняются каждые несколько
+  /// секунд. Кэш экономит десятки запросов при возврате на главную.
+  final Map<String, _CachedTracks> _similarCache = {};
 
   /// Deezer/iTunes — превью и обложки; для похожих добавляем Audius,
   /// где иногда находится полная версия.
@@ -115,7 +122,11 @@ class RecommendationService {
   bool get hasTaste =>
       _history.isNotEmpty ||
       _library.likedTracks.isNotEmpty ||
+      _hasPlaylistTracks ||
       _localTracks.cached.isNotEmpty;
+
+  bool get _hasPlaylistTracks =>
+      _library.playlists.any((playlist) => playlist.tracks.isNotEmpty);
 
   int get historyLength => _history.length;
 
@@ -201,59 +212,201 @@ class RecommendationService {
     return unique.values.toList(growable: false);
   }
 
-  /// Похожие треки через Last.fm `track.getsimilar`, затем поиск
-  /// в Deezer/iTunes/Audius через существующий SearchApi.
+  /// Похожие треки для конкретной песни пользователя.
+  ///
+  /// Сначала используется Last.fm `track.getsimilar`, если задан ключ.
+  /// Без ключа или при пустом ответе включаются связанные исполнители
+  /// Deezer и другие треки того же артиста — главная остаётся полезной
+  /// даже без внешней настройки.
   Future<List<Track>> getSimilarTracks(Track seed) async {
-    final similar = await _lastFmSimilar(seed);
-    if (similar.isEmpty) return const [];
-
-    final resolved = await Future.wait([
-      for (final item in similar.take(10)) _resolveSimilar(item),
-    ]);
-
-    final result = <Track>[];
-    final seen = <String>{};
-    for (final track in resolved.whereType<Track>()) {
-      if (seen.add(_dedupeKey(track))) result.add(track);
+    final cacheKey =
+        '${_dedupeKey(seed)}|${_lastFmApiKey.isEmpty ? 'fallback' : 'lastfm'}';
+    final cached = _similarCache[cacheKey];
+    if (cached != null &&
+        DateTime.now().difference(cached.createdAt) < _similarCacheTtl) {
+      return cached.tracks;
     }
-    return result.take(10).toList(growable: false);
+
+    final result =
+        await safeRequest(
+          'Similar ${seed.title}',
+          () => _buildSimilarTracks(seed),
+          timeout: const Duration(seconds: 10),
+        ) ??
+        const <Track>[];
+
+    if (result.isNotEmpty) {
+      _similarCache[cacheKey] = _CachedTracks(result, DateTime.now());
+      if (_similarCache.length > _maxSimilarCacheEntries) {
+        _similarCache.remove(_similarCache.keys.first);
+      }
+    }
+    return result;
   }
 
-  /// Ежедневный микс: история + похожие + «слушайте снова».
+  Future<List<Track>> _buildSimilarTracks(Track seed) async {
+    final result = <Track>[];
+    final seen = <String>{_dedupeKey(seed)};
+
+    void addAll(Iterable<Track> tracks) {
+      for (final track in tracks) {
+        if (!_isPlayable(track)) continue;
+        if (seen.add(_dedupeKey(track))) result.add(track);
+      }
+    }
+
+    final lastFm = await _lastFmSimilar(seed);
+    if (lastFm.isNotEmpty) {
+      final resolved = await Future.wait([
+        for (final item in lastFm.take(6)) _resolveSimilar(item),
+      ]);
+      addAll(resolved.whereType<Track>());
+    }
+
+    if (result.length < 6) {
+      final fallback = await Future.wait([
+        _deezerRelated(seed),
+        _sameArtistTracks(seed),
+      ]);
+      for (final list in fallback) {
+        addAll(list);
+        if (result.length >= 10) break;
+      }
+    }
+
+    final known = _knownKeys();
+    final fresh = <Track>[
+      for (final track in result)
+        if (!known.contains(_dedupeKey(track))) track,
+    ];
+    final picked = fresh.length >= 4 ? fresh : result;
+
+    // Полные треки ставим первыми: «Играть все» не должно превращаться
+    // в один 30-секундный фрагмент из-за превью в начале подборки.
+    final ordered = <Track>[
+      for (final track in picked)
+        if (!track.isPreview) track,
+      for (final track in picked)
+        if (track.isPreview) track,
+    ];
+    return ordered.take(10).toList(growable: false);
+  }
+
+  Future<List<Track>> _deezerRelated(Track seed) async {
+    final tracks = await safeRequest(
+      'Deezer related ${seed.title}',
+      () => _searchApi.deezerRelatedTracks(seed),
+    );
+    return tracks ?? const [];
+  }
+
+  Future<List<Track>> _sameArtistTracks(Track seed) async {
+    final outcome = await safeRequest(
+      'More from ${seed.artist}',
+      () => _searchApi.searchSources(seed.artist, sources: _similarSources),
+    );
+    if (outcome == null) return const [];
+
+    final tracks = _tracksForArtist(outcome.tracks, seed.artist);
+    final candidates = <Track>[
+      for (final track in tracks)
+        if (_dedupeKey(track) != _dedupeKey(seed)) track,
+    ];
+    final ordered = <Track>[
+      for (final track in candidates)
+        if (!track.isPreview) track,
+      for (final track in candidates)
+        if (track.isPreview) track,
+    ];
+    return ordered.take(8).toList(growable: false);
+  }
+
+  /// Ежедневный микс: быстрые подборки + похожие на несколько ваших песен
+  /// + «слушайте снова».
   Future<List<Track>> getDailyMix() async {
-    final seed = _topArtistSeed();
+    final seeds = _tasteSeeds(limit: 2);
     final futures = <Future<List<Track>>>[
       getQuickPicks(),
       getListenAgain(),
-      if (seed != null) getSimilarTracks(seed),
+      for (final seed in seeds) getSimilarTracks(seed),
     ];
     final results = await Future.wait(futures);
     final quick = results[0];
     final again = results[1];
-    final similar = seed == null ? const <Track>[] : results[2];
+    final similar = <Track>[
+      for (var i = 0; i < seeds.length; i++) ...results[i + 2],
+    ];
     return _mix(quick, similar, again);
   }
 
   /// Полная сборка главной: все секции считаются один раз.
+  ///
+  /// Алгоритм идёт не от «топ-исполнителя», а от конкретных песен
+  /// пользователя: история, лайки и локальная медиатека дают семена,
+  /// к каждому из них подбираются похожие треки.
   Future<HomeRecommendations> loadHome() async {
-    final seed = _topArtistSeed();
+    final seeds = _tasteSeeds(limit: 2);
     final futures = <Future<List<Track>>>[
       getQuickPicks(),
       getListenAgain(),
-      if (seed != null) getSimilarTracks(seed),
+      for (final seed in seeds) getSimilarTracks(seed),
     ];
     final results = await Future.wait(futures);
     final quick = results[0];
     final again = results[1];
-    final similar = seed == null ? const <Track>[] : results[2];
-    final daily = _mix(quick, similar, again);
+    final similar = <List<Track>>[
+      for (var i = 0; i < seeds.length; i++) results[i + 2],
+    ];
 
+    final forYou = _forYou(similar);
     final sections = <RecommendationSection>[];
+    final used = <String>{for (final track in forYou) _dedupeKey(track)};
+
+    if (forYou.isNotEmpty) {
+      sections.add(
+        RecommendationSection(
+          title: 'Для вас',
+          subtitle: seeds.isEmpty
+              ? 'Подборка на основе вашей музыки'
+              : 'Похоже на ваши песни',
+          tracks: forYou,
+        ),
+      );
+    }
+
+    var rails = 0;
+    for (var i = 0; i < seeds.length; i++) {
+      final source = similar[i];
+      if (source.length < 3) continue;
+
+      var tracks = <Track>[
+        for (final track in source)
+          if (!used.contains(_dedupeKey(track))) track,
+      ];
+      // Если после «Для вас» почти ничего не осталось, лучше показать
+      // повтор, чем пустую секцию.
+      if (tracks.length < 3) tracks = source;
+      if (tracks.length < 3) continue;
+
+      sections.add(
+        RecommendationSection(
+          title: 'Похоже на «${seeds[i].title}»',
+          subtitle: '${seeds[i].artist} · на основе вашей музыки',
+          tracks: tracks,
+        ),
+      );
+      for (final track in tracks) {
+        used.add(_dedupeKey(track));
+      }
+      rails++;
+      if (rails >= 2) break;
+    }
+
     if (quick.isNotEmpty) {
       sections.add(
         RecommendationSection(
-          title: 'Быстрый выбор',
-          subtitle: 'По вашим любимым исполнителям',
+          title: 'Любимые исполнители',
+          subtitle: 'Треки от знакомых артистов',
           tracks: quick,
         ),
       );
@@ -267,24 +420,6 @@ class RecommendationService {
         ),
       );
     }
-    if (similar.isNotEmpty && seed != null) {
-      sections.add(
-        RecommendationSection(
-          title: 'Похоже на ${seed.artist}',
-          subtitle: 'Похожесть из Last.fm',
-          tracks: similar,
-        ),
-      );
-    }
-    if (daily.isNotEmpty) {
-      sections.add(
-        RecommendationSection(
-          title: 'Ежедневный микс',
-          subtitle: 'Обновляется каждый день',
-          tracks: daily,
-        ),
-      );
-    }
 
     return HomeRecommendations(sections: sections, hasTaste: hasTaste);
   }
@@ -293,7 +428,12 @@ class RecommendationService {
 
   Future<List<Track>> _quickPickCandidates(_ArtistTaste artist) async {
     final known = <Track>[];
-    for (final track in [..._localTracks.cached, ..._library.likedTracks]) {
+    final familiar = <Track>[
+      ..._localTracks.cached,
+      ..._library.likedTracks,
+      ..._library.playlists.expand((playlist) => playlist.tracks),
+    ];
+    for (final track in familiar) {
       if (_artistMatches(track.artist, artist.name) && _isPlayable(track)) {
         known.add(track);
         if (known.length >= 2) break;
@@ -418,7 +558,7 @@ class RecommendationService {
     if (apiKey.isEmpty) {
       debugPrint(
         '[RecommendationService] Last.fm: API key не задан, '
-        'секция похожих пропущена',
+        'используем связанных исполнителей Deezer',
       );
       return const [];
     }
@@ -513,6 +653,7 @@ class RecommendationService {
       ...again,
       ..._mostPlayedTracks(20),
       ..._library.likedTracks,
+      ..._library.playlists.expand((playlist) => playlist.tracks),
       ..._localTracks.cached,
     ];
     final seen = <String>{};
@@ -530,6 +671,30 @@ class RecommendationService {
     final now = DateTime.now();
     final start = DateTime(now.year, 1, 1);
     return now.year * 1000 + now.difference(start).inDays;
+  }
+
+  /// Общий микс «Для вас»: три лучших похожих трека от каждого семени.
+  /// Остальные похожие остаются для отдельных секций «Похоже на …»,
+  /// поэтому подборки не повторяют друг друга.
+  List<Track> _forYou(List<List<Track>> similar) {
+    final result = <Track>[];
+    final seen = <String>{};
+
+    void add(Track track) {
+      if (!_isPlayable(track)) return;
+      if (seen.add(_dedupeKey(track))) result.add(track);
+    }
+
+    const perSeedLimit = 3;
+    for (var round = 0; round < perSeedLimit; round++) {
+      for (final list in similar) {
+        if (round >= list.length) continue;
+        add(list[round]);
+      }
+    }
+
+    result.shuffle(Random(_dailySeed()));
+    return result;
   }
 
   // --- Вкусы и статистика --------------------------------------------------
@@ -581,44 +746,109 @@ class RecommendationService {
     return ranked.take(limit).toList(growable: false);
   }
 
-  Track? _topArtistSeed() {
-    final top = _topArtists(1);
-    if (top.isEmpty) return null;
-    final artist = top.first.name;
+  /// Несколько песен-семян (по умолчанию до трёх): недавние прослушивания,
+  /// лайки, плейлисты и локальная музыка.
+  ///
+  /// Один артист сначала даёт только одно семя, иначе главная превращается
+  /// в дискографию случайного исполнителя. Если музыки мало, ограничение
+  /// снимается, чтобы подборки вообще появились.
+  List<Track> _tasteSeeds({int limit = 3}) {
+    final now = DateTime.now();
+    final since = now.subtract(const Duration(days: 180));
+    final candidates = <String, _SeedCandidate>{};
 
-    final stats = <String, _TrackStat>{};
-    for (final entry in _history) {
-      if (!_artistMatches(entry.track.artist, artist)) continue;
-      final current = stats[entry.track.id];
+    void add(Track track, int weight, {DateTime? playedAt}) {
+      if (!_isPlayable(track)) return;
+      if (_cleanArtist(track.artist) == null) return;
+      if (track.title.trim().isEmpty) return;
+
+      final key = _dedupeKey(track);
+      final current = candidates[key];
       if (current == null) {
-        stats[entry.track.id] = _TrackStat(entry.track, 1, entry.playedAt);
-      } else {
-        stats[entry.track.id] = _TrackStat(
-          current.track,
-          current.count + 1,
-          entry.playedAt.isAfter(current.lastPlayed)
-              ? entry.playedAt
-              : current.lastPlayed,
-        );
+        candidates[key] = _SeedCandidate(track, weight, playedAt);
+        return;
       }
-    }
-    if (stats.isNotEmpty) {
-      final ranked = stats.values.toList()
-        ..sort((a, b) {
-          final byCount = b.count.compareTo(a.count);
-          if (byCount != 0) return byCount;
-          return b.lastPlayed.compareTo(a.lastPlayed);
-        });
-      return ranked.first.track;
+      candidates[key] = _SeedCandidate(
+        current.track,
+        current.weight + weight,
+        _latestDate(current.lastPlayed, playedAt),
+      );
     }
 
+    for (final entry in _history) {
+      if (entry.playedAt.isBefore(since)) continue;
+      final days = now.difference(entry.playedAt).inDays;
+      final recency = days <= 7
+          ? 3
+          : days <= 30
+          ? 2
+          : 1;
+      add(entry.track, 1 + recency, playedAt: entry.playedAt);
+    }
     for (final track in _library.likedTracks) {
-      if (_artistMatches(track.artist, artist)) return track;
+      add(track, 6);
+    }
+    var playlistCount = 0;
+    for (final playlist in _library.playlists) {
+      for (final track in playlist.tracks) {
+        if (playlistCount++ >= 120) break;
+        add(track, 3);
+      }
+      if (playlistCount >= 120) break;
     }
     for (final track in _localTracks.cached) {
-      if (_artistMatches(track.artist, artist)) return track;
+      add(track, 2);
     }
-    return null;
+
+    final ranked = candidates.values.toList()
+      ..sort((a, b) {
+        final byWeight = b.weight.compareTo(a.weight);
+        if (byWeight != 0) return byWeight;
+
+        final aDate = a.lastPlayed;
+        final bDate = b.lastPlayed;
+        if (aDate != null && bDate != null) {
+          final byDate = bDate.compareTo(aDate);
+          if (byDate != 0) return byDate;
+        } else if (aDate != null) {
+          return -1;
+        } else if (bDate != null) {
+          return 1;
+        }
+        return a.track.title.compareTo(b.track.title);
+      });
+
+    final result = <_SeedCandidate>[];
+    final usedArtists = <String>{};
+    for (final candidate in ranked) {
+      if (result.length >= limit) break;
+      final artist = _normalize(candidate.track.artist);
+      if (!usedArtists.add(artist)) continue;
+      result.add(candidate);
+    }
+    if (result.length < limit) {
+      for (final candidate in ranked) {
+        if (result.length >= limit) break;
+        if (result.contains(candidate)) continue;
+        result.add(candidate);
+      }
+    }
+    return [for (final candidate in result) candidate.track];
+  }
+
+  Set<String> _knownKeys() {
+    final keys = <String>{};
+    void addAll(Iterable<Track> tracks) {
+      for (final track in tracks) {
+        keys.add(_dedupeKey(track));
+      }
+    }
+
+    addAll(_history.map((entry) => entry.track));
+    addAll(_library.likedTracks);
+    addAll(_library.playlists.expand((playlist) => playlist.tracks));
+    addAll(_localTracks.cached);
+    return keys;
   }
 
   List<Track> _mostPlayedTracks(int limit) {
@@ -756,6 +986,12 @@ class RecommendationService {
         .trim();
   }
 
+  DateTime? _latestDate(DateTime? left, DateTime? right) {
+    if (left == null) return right;
+    if (right == null) return left;
+    return right.isAfter(left) ? right : left;
+  }
+
   String get _lastFmApiKey {
     final stored = _prefs.getString(AppConstants.lastFmApiKeyKey)?.trim() ?? '';
     if (stored.isNotEmpty) return stored;
@@ -832,6 +1068,21 @@ class _TrackStat {
   final DateTime lastPlayed;
 
   const _TrackStat(this.track, this.count, this.lastPlayed);
+}
+
+class _SeedCandidate {
+  final Track track;
+  final int weight;
+  final DateTime? lastPlayed;
+
+  const _SeedCandidate(this.track, this.weight, this.lastPlayed);
+}
+
+class _CachedTracks {
+  final List<Track> tracks;
+  final DateTime createdAt;
+
+  const _CachedTracks(this.tracks, this.createdAt);
 }
 
 class _SimilarSeed {

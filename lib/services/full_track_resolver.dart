@@ -116,7 +116,7 @@ class FullTrackResolver {
     if (soundcloud != null) return soundcloud;
 
     final match = await safeRequest<YoutubeMatch?>(
-      () => _youtube.findBest(title, artist),
+      () => _youtube.findBest(title, artist, minDurationSec: 60),
       source: 'youtube.search',
     );
     if (match == null) {

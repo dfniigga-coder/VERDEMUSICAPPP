@@ -22,19 +22,34 @@
 - **Скачивание** — YouTube → MP3 192 кбит/с (`ffmpeg_kit` + `libmp3lame`)
   с названием, исполнителем и обложкой. Готовый файл попадает в общую
   папку `Music/Verde` (через MediaStore) и в «Мои треки».
+- **Скачивание по ссылке** — скопируйте ссылку в YouTube Music
+  (`music.youtube.com/watch?v=…`, `youtu.be/…`) и вставьте её в Verde
+  или поделитесь ею через Android-меню «Поделиться». Приложение само
+  получит название, исполнителя и обложку, скачает аудиодорожку,
+  конвертирует её в MP3 и сохранит в `Music/Verde`.
 - **Локальные аудиофайлы** с телефона (`on_audio_query`), выбранные вручную
   файлы (`file_picker`) и прямые ссылки на MP3.
 
 ## Возможности
 
 - Нижняя навигация: Главная / Поиск / Библиотека
-- Главная в стиле YouTube Music: «Быстрый выбор», «Слушайте снова»
-  (треки, которых не было больше 3 дней), «Похоже на …» через Last.fm
-  и «Ежедневный микс» на 20 треков. Подборки строятся локально по истории,
-  лайкам и медиатеке и обновляются после каждого прослушивания.
+- Главная в стиле YouTube Music: алгоритм идёт от конкретных песен
+  пользователя. История, лайки, плейлисты и медиатека дают «семена», к
+  каждому подбираются похожие треки — секции «Похоже на «…»» и общий
+  микс «Для вас». Дополнительно показываются «Любимые исполнители» и
+  «Слушайте снова» (треки, которых не было больше 3 дней). Если Last.fm
+  не настроен, похожие находятся через связанных исполнителей Deezer и
+  треки того же артиста. Подборки обновляются после каждого прослушивания.
 - Поиск сразу по Deezer, iTunes, Audius, Jamendo, Internet Archive и
-  YouTube: параллельные запросы с таймаутом 8–10 с, дебаунс 400 мс, чипы
-  «Все / Полные / Превью», бейджи источников и недавние запросы
+  YouTube: параллельные запросы с таймаутом 8–10 с, результаты появляются
+  по мере ответа источников (Deezer/iTunes обычно первыми), кэш на 5 минут,
+  дебаунс 250 мс, чипы «Все / Полные / Превью», бейджи источников и
+  недавние запросы.
+- Превью Deezer/iTunes больше не играют 30 секунд: при нажатии Verde
+  сразу ищет полную версию на YouTube, скачивает её в MP3 192 кбит/с
+  в «Мои треки» и `Music/Verde`, затем запускает локальный файл.
+  Остальные превью не попадают в очередь, поэтому автопереход тоже
+  всегда включает полный трек
 - «Слушать полностью» у 30-секундных превью: сначала SoundCloud
   (замена stream URL в текущей очереди), затем YouTube — прямой
   аудиопоток играет в фоне через just_audio; IFrame-плеер остаётся
@@ -43,6 +58,10 @@
   и пункт «Скачать MP3» в меню трека. Прогресс виден в нижней панели
   из любого экрана; готовый файл сохраняется в `Music/Verde` и
   в «Мои треки»
+- Скачивание по ссылке YouTube Music: иконка ссылки в поиске, пункт
+  «Скачать с YouTube Music» в библиотеке или Android-меню «Поделиться»
+  (а также открытие YouTube-ссылки сразу в Verde). Плейлисты
+  отклоняются с подсказкой — нужна ссылка на конкретный трек
 - Плеер: play/pause, next/prev, перемотка, громкость, shuffle,
   repeat (off / все / трек)
 - Мини-плеер с прогрессом; тап открывает полноэкранный плеер
@@ -88,17 +107,20 @@ lib/
                                  # DownloadProvider
   services/audio_player_handler.dart  # BaseAudioHandler: очередь, уведомление
   services/full_track_resolver.dart   # SoundCloud → YouTube (поток / videoId)
-  services/youtube_service.dart       # поиск, match, аудиопоток, загрузка
-  services/mp3_download_service.dart  # YouTube → MP3 + метаданные/обложка
+  services/youtube_service.dart       # поиск, match, метаданные, аудиопоток
+  services/youtube_link.dart          # разбор ссылок YouTube / YouTube Music
+  services/incoming_link_service.dart # ссылки из Android «Поделиться» / VIEW
+  services/mp3_download_service.dart  # ссылка/YouTube → MP3 + метаданные/обложка
   services/media_store.dart           # сохранение в Music/Verde
-  services/recommendation_service.dart # история, Last.fm, Deezer/iTunes
+  services/recommendation_service.dart # семена из ваших песен, Last.fm, Deezer
   screens/                       # home, search, library, settings, player
   widgets/                       # мини-плеер, очередь, меню, artwork,
                                  # карточки подборок, «Слушать полностью»,
-                                 # кнопка/лист скачивания, YouTube iframe...
+                                 # кнопка/лист скачивания, лист «ссылка → MP3»,
+                                 # YouTube iframe...
 android/app/src/main/
-  AndroidManifest.xml            # разрешения + audio_service service/receiver
-  kotlin/.../MainActivity.kt     # MethodChannel com.verde.music/media_store
+  AndroidManifest.xml            # разрешения, audio_service, SEND/VIEW-фильтры
+  kotlin/.../MainActivity.kt     # MediaStore + каналы входящих ссылок
 .github/workflows/build.yml     # CI: release APK как artifact
 ```
 

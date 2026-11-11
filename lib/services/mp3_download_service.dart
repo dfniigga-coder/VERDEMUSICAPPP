@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import '../data/models/track.dart';
 import '../data/repositories/local_tracks_repository.dart';
 import 'media_store.dart';
+import 'youtube_link.dart';
 import 'youtube_service.dart';
 
 /// Этапы скачивания — UI показывает их пользователю.
@@ -41,12 +42,16 @@ class DownloadResult {
   final String? publicPath;
   final String title;
   final String artist;
+  final int? durationSec;
+  final String? artworkUrl;
 
   const DownloadResult({
     required this.localPath,
     required this.publicPath,
     required this.title,
     required this.artist,
+    this.durationSec,
+    this.artworkUrl,
   });
 }
 
@@ -67,6 +72,49 @@ class Mp3DownloadService {
   final bool _ownsHttpClient;
   final http.Client _http;
 
+  /// Уже сохранённый MP3 этого трека (если он есть в «Моих треках»).
+  Track? findDownloaded(Track track) => _localTracks.findDownloaded(track);
+
+  /// Разбирает ссылку YouTube Music / YouTube и возвращает трек
+  /// с настоящими названием, исполнителем и обложкой.
+  ///
+  /// Скачивание после этого идёт через [download]: видео уже известно,
+  /// поэтому повторный поиск не выполняется.
+  Future<Track> resolveLink(String input) async {
+    final link = YoutubeLink.parse(input);
+    if (link == null) {
+      throw const DownloadException(
+        'Не удалось распознать ссылку. Вставьте ссылку с YouTube Music '
+        'или YouTube.',
+      );
+    }
+
+    final videoId = link.videoId;
+    if (videoId == null) {
+      throw const DownloadException(
+        'Это ссылка на плейлист. Откройте трек и скопируйте ссылку на него.',
+      );
+    }
+
+    try {
+      final match = await _youtube.resolveVideo(videoId);
+      return Track.youtube(
+        videoId: match.videoId,
+        title: match.title,
+        artist: match.artist,
+        artworkUrl: match.artworkUrl,
+        durationSec: match.durationSec,
+      );
+    } on YoutubeException catch (error) {
+      throw DownloadException(error.message);
+    } catch (error) {
+      debugPrint('Mp3DownloadService: link resolve failed: $error');
+      throw const DownloadException(
+        'Не удалось получить информацию о видео. Проверьте соединение.',
+      );
+    }
+  }
+
   /// [onProgress] вызывается на каждом этапе. Для downloading progress
   /// равен 0.0–1.0, для остальных этапов обычно null (неопределённый).
   Future<DownloadResult> download(
@@ -85,8 +133,10 @@ class Mp3DownloadService {
         track.title,
         track.artist,
         // У превью Deezer/iTunes длительность всегда 30 секунд — по ней
-        // нельзя выбирать полную версию на YouTube.
+        // нельзя выбирать полную версию на YouTube. Заодно отсекаем
+        // короткие Shorts: для MP3 нужен именно полный трек.
         durationSec: track.isPreview ? null : track.durationSec,
+        minDurationSec: track.isPreview ? 60 : 20,
         preferredVideoId: track.source == TrackSource.youtube
             ? track.externalId
             : null,
@@ -199,6 +249,10 @@ class Mp3DownloadService {
         publicPath: publicPath,
         title: title,
         artist: artist,
+        durationSec: track.isPreview
+            ? match.durationSec
+            : (track.durationSec ?? match.durationSec),
+        artworkUrl: artworkUrl,
       );
     } finally {
       await _deleteQuietly(sourceFile);

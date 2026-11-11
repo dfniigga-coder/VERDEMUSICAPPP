@@ -7,6 +7,7 @@ import '../data/models/track.dart';
 import '../services/audio_player_handler.dart';
 import '../services/recommendation_service.dart';
 import '../services/youtube_service.dart';
+import 'download_provider.dart';
 
 /// UI-состояние плеера. Обёртка вокруг [AudioPlayerHandler]:
 /// хранит флаги для экранов и делегирует команды аудио-хендлеру.
@@ -15,8 +16,10 @@ class PlayerProvider extends ChangeNotifier {
     this._handler, {
     RecommendationService? recommendations,
     YoutubeService? youtube,
+    DownloadProvider? downloads,
   }) : _recommendations = recommendations,
-       _youtube = youtube {
+       _youtube = youtube,
+       _downloads = downloads {
     _handler.playbackState.map((s) => s.playing).distinct().listen((playing) {
       _playing = playing;
       notifyListeners();
@@ -66,6 +69,7 @@ class PlayerProvider extends ChangeNotifier {
   final AudioPlayerHandler _handler;
   final RecommendationService? _recommendations;
   final YoutubeService? _youtube;
+  final DownloadProvider? _downloads;
 
   bool _playing = false;
   ProcessingState _processing = ProcessingState.idle;
@@ -74,6 +78,10 @@ class PlayerProvider extends ChangeNotifier {
   LoopMode _loopMode = LoopMode.off;
   double _volume = 1.0;
   bool _preparing = false;
+
+  /// Номер последнего запуска очереди. Нужен, чтобы запоздавший запуск
+  /// (пока скачивалось превью) не перебил более новый выбор пользователя.
+  int _playRequest = 0;
 
   /// Отдельный ValueNotifier, чтобы UI мог показывать снекбар без
   /// перерисовки всего дерева на каждое изменение.
@@ -124,19 +132,45 @@ class PlayerProvider extends ChangeNotifier {
     var start = startIndex;
     if (start < 0 || start >= tracks.length) start = 0;
 
+    final request = ++_playRequest;
     _setPreparing(true);
     try {
+      final startTrack = tracks[start];
+      final downloads = _downloads;
+      final needsFullMp3 =
+          startTrack.isPreview && !startTrack.isLocal && downloads != null;
+
       // YouTube-треки приходят из поиска без прямого URL. Получаем их
       // параллельно: обычно это 0,5–2 секунды, после чего очередь
       // полностью готова к фоновому воспроизведению.
-      final prepared = await Future.wait(
+      final preparedFuture = Future.wait(
         tracks.map((track) => _prepareTrack(track)),
       );
+
+      // Превью Deezer/iTunes — это 30 секунд. Вместо него скачиваем
+      // полный трек в MP3 и играем локальный файл. Остальные треки
+      // очереди готовим параллельно, чтобы не ждать дважды.
+      Track? downloadedStart;
+      if (needsFullMp3) {
+        downloadedStart = await downloads.ensureDownloaded(startTrack);
+        if (request != _playRequest) return;
+        if (downloadedStart == null) {
+          // Причина уже показана DownloadProvider (баннер/снекбар).
+          return;
+        }
+      }
+
+      final prepared = await preparedFuture;
+      if (request != _playRequest) return;
+      if (downloadedStart != null) prepared[start] = downloadedStart;
 
       final playable = <Track>[];
       var playableStart = -1;
       for (var i = 0; i < prepared.length; i++) {
         final track = prepared[i];
+        // Другие превью не ставим в очередь: иначе автопереход снова
+        // включит 30-секундный фрагмент.
+        if (i != start && track.isPreview) continue;
         if (!_canPlay(track)) continue;
         if (i == start) playableStart = playable.length;
         playable.add(track);
@@ -160,10 +194,12 @@ class PlayerProvider extends ChangeNotifier {
         unawaited(recommendations.recordPlay(playable[playableStart]));
       }
     } catch (e) {
-      errorNotifier.value =
-          'Не удалось начать воспроизведение. Проверьте соединение.';
+      if (request == _playRequest) {
+        errorNotifier.value =
+            'Не удалось начать воспроизведение. Проверьте соединение.';
+      }
     } finally {
-      _setPreparing(false);
+      if (request == _playRequest) _setPreparing(false);
     }
   }
 
@@ -202,6 +238,7 @@ class PlayerProvider extends ChangeNotifier {
   /// Возвращает `false`, если запуск не удался: UI не должен показывать
   /// сообщение об успехе в этом случае.
   Future<bool> playResolvedTrack(Track original, Track resolved) async {
+    _playRequest++;
     try {
       await _handler.playResolvedTrack(original, resolved);
       return true;
@@ -217,12 +254,18 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> seek(Duration position) => _handler.seek(position);
 
-  Future<void> playAt(int index) => _handler.skipToQueueItem(index);
+  Future<void> playAt(int index) {
+    _playRequest++;
+    return _handler.skipToQueueItem(index);
+  }
 
   Future<void> addToQueue(Track track) async {
-    final prepared = await _prepareTrack(track);
-    if (!_canPlay(prepared)) {
-      errorNotifier.value = 'Не удалось получить аудио этого трека.';
+    final needsDownload = track.isPreview && !track.isLocal;
+    final prepared = await _prepareQueueTrack(track);
+    if (prepared == null) {
+      if (!needsDownload) {
+        errorNotifier.value = 'Не удалось получить аудио этого трека.';
+      }
       return;
     }
     try {
@@ -233,9 +276,12 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> playNext(Track track) async {
-    final prepared = await _prepareTrack(track);
-    if (!_canPlay(prepared)) {
-      errorNotifier.value = 'Не удалось получить аудио этого трека.';
+    final needsDownload = track.isPreview && !track.isLocal;
+    final prepared = await _prepareQueueTrack(track);
+    if (prepared == null) {
+      if (!needsDownload) {
+        errorNotifier.value = 'Не удалось получить аудио этого трека.';
+      }
       return;
     }
     try {
@@ -258,7 +304,25 @@ class PlayerProvider extends ChangeNotifier {
     return _handler.player.setVolume(v);
   }
 
-  // --- Подготовка YouTube-треков -------------------------------------------
+  // --- Подготовка треков ----------------------------------------------------
+
+  /// Готовит трек для добавления в очередь.
+  ///
+  /// Превью Deezer/iTunes сначала скачиваем в MP3: в очереди не должно
+  /// оставаться 30-секундных фрагментов.
+  Future<Track?> _prepareQueueTrack(Track track) async {
+    if (track.isPreview && !track.isLocal) {
+      final downloads = _downloads;
+      if (downloads == null) return null;
+
+      final downloaded = await downloads.ensureDownloaded(track);
+      if (downloaded == null || !_canPlay(downloaded)) return null;
+      return downloaded;
+    }
+
+    final prepared = await _prepareTrack(track);
+    return _canPlay(prepared) ? prepared : null;
+  }
 
   bool _canPlay(Track track) {
     if (track.source == TrackSource.local) {

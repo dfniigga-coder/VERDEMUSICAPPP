@@ -44,6 +44,7 @@ Future<void> main() async {
     library: libraryRepo,
     localTracks: localTracksRepo,
   );
+  final downloadProvider = DownloadProvider(mp3DownloadService);
 
   // 3. Разрешение на постоянные уведомления (Android 13+) — фон-плеер?
   await _requestNotificationPermission();
@@ -79,11 +80,15 @@ Future<void> main() async {
         ChangeNotifierProvider<LocalTracksRepository>.value(
           value: localTracksRepo,
         ),
+        ChangeNotifierProvider<DownloadProvider>(
+          create: (_) => downloadProvider,
+        ),
         ChangeNotifierProvider<PlayerProvider>(
           create: (_) => PlayerProvider(
             audioHandler,
             recommendations: recommendationService,
             youtube: youtubeService,
+            downloads: downloadProvider,
           ),
         ),
         ChangeNotifierProvider<LibraryProvider>(
@@ -91,9 +96,6 @@ Future<void> main() async {
         ),
         ChangeNotifierProvider<SearchProvider>(
           create: (_) => SearchProvider(searchApi, libraryRepo),
-        ),
-        ChangeNotifierProvider<DownloadProvider>(
-          create: (_) => DownloadProvider(mp3DownloadService),
         ),
         Provider<FullTrackResolver>(
           create: (_) => FullTrackResolver(youtube: youtubeService),

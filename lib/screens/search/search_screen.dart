@@ -7,9 +7,11 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/track.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/search_provider.dart';
+import '../../services/youtube_link.dart';
 import '../../widgets/common.dart';
 import '../../widgets/download_sheet.dart';
 import '../../widgets/full_track_button.dart';
+import '../../widgets/link_download_sheet.dart';
 import '../../widgets/track_menu.dart';
 import '../../widgets/track_tile.dart';
 
@@ -50,7 +52,14 @@ class _SearchScreenState extends State<SearchScreen> {
       context.read<SearchProvider>().search('');
       return;
     }
-    _debounce = Timer(const Duration(milliseconds: 400), () {
+    // Ссылку с YouTube Music в текстовый поиск не отправляем: её
+    // обрабатывает лист «ссылка → MP3».
+    if (YoutubeLink.parse(query) != null) {
+      context.read<SearchProvider>().search('');
+      return;
+    }
+
+    _debounce = Timer(const Duration(milliseconds: 250), () {
       if (!mounted) return;
       context.read<SearchProvider>().search(query);
     });
@@ -58,18 +67,27 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _submit(String query) {
     _debounce?.cancel();
-    final provider = context.read<SearchProvider>();
-    provider.search(query);
-    if (query.trim().isNotEmpty) {
-      provider.saveRecent(query);
-    }
     _focusNode.unfocus();
+
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return;
+
+    if (YoutubeLink.parse(trimmed) != null) {
+      unawaited(showLinkDownloadSheet(context, initialUrl: trimmed));
+      return;
+    }
+
+    final provider = context.read<SearchProvider>();
+    provider.search(trimmed);
+    provider.saveRecent(trimmed);
   }
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<SearchProvider>();
-    final hasQuery = _controller.text.trim().isNotEmpty;
+    final query = _controller.text.trim();
+    final isLink = YoutubeLink.parse(query) != null;
+    final hasQuery = query.isNotEmpty && !isLink;
 
     return Scaffold(
       body: SafeArea(
@@ -87,7 +105,11 @@ class _SearchScreenState extends State<SearchScreen> {
                   hintText: 'Треки, исполнители…',
                   prefixIcon: const Icon(Icons.search),
                   suffixIcon: _controller.text.isEmpty
-                      ? null
+                      ? IconButton(
+                          onPressed: () => showLinkDownloadSheet(context),
+                          tooltip: 'Скачать по ссылке с YouTube Music',
+                          icon: const Icon(Icons.link_rounded, size: 21),
+                        )
                       : IconButton(
                           onPressed: () {
                             _controller.clear();
@@ -98,6 +120,10 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
               ),
             ),
+            if (isLink)
+              _LinkHint(
+                onTap: () => showLinkDownloadSheet(context, initialUrl: query),
+              ),
             if (hasQuery) _FilterBar(provider: provider),
             if (provider.loading && provider.results != null)
               const LinearProgressIndicator(minHeight: 2),
@@ -126,19 +152,64 @@ class _SearchScreenState extends State<SearchScreen> {
         },
       );
     }
-    if (!provider.hasResults) {
+    final results = provider.visibleResults;
+    if (results.isEmpty && provider.loading) {
+      return const LoadingView(message: 'Ищем ещё источники…');
+    }
+    if (results.isEmpty) {
       return EmptyState(
         icon: Icons.search_off,
         title: 'Ничего не найдено',
         subtitle: provider.emptySubtitle,
       );
     }
-    final results = provider.visibleResults;
     return _ResultsList(
       results: results,
       onPlay: (tracks, index) {
         context.read<PlayerProvider>().playTracks(tracks, startIndex: index);
       },
+    );
+  }
+}
+
+/// Подсказка, когда в поисковую строку вставлена ссылка YouTube.
+class _LinkHint extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _LinkHint({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Material(
+        color: AppTheme.accentGreen.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.music_video_outlined,
+                  size: 20,
+                  color: AppTheme.accentGreen,
+                ),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Ссылка распознана — скачать трек в MP3?',
+                    style: TextStyle(fontSize: 12.5),
+                  ),
+                ),
+                Icon(Icons.chevron_right, size: 18, color: AppTheme.textDim),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

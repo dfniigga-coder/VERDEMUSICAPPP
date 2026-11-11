@@ -44,9 +44,16 @@ class DownloadProvider extends ChangeNotifier {
 
   DownloadTask? _task;
 
+  /// Future текущей задачи: автозапуск превью ждёт его, чтобы не
+  /// запускать вторую загрузку параллельно.
+  Future<bool>? _activeDownload;
+
   DownloadTask? get task => _task;
 
   bool get isDownloading => _task?.isActive ?? false;
+
+  /// Уже сохранённый MP3 этого трека.
+  Track? findDownloaded(Track track) => _service.findDownloaded(track);
 
   /// Отдельный notifier, чтобы снекбар не перестраивал всё дерево.
   final ValueNotifier<DownloadNotice?> notice = ValueNotifier<DownloadNotice?>(
@@ -61,6 +68,45 @@ class DownloadProvider extends ChangeNotifier {
   }
 
   bool isTrackDownloading(Track track) => taskFor(track)?.isActive ?? false;
+
+  /// Метаданные трека по ссылке YouTube Music / YouTube.
+  ///
+  /// Ошибки разбора и сети приходят как [DownloadException] — лист
+  /// скачивания показывает их прямо в поле ввода.
+  Future<Track> resolveLink(String input) => _service.resolveLink(input);
+
+  /// Возвращает локальный MP3 для трека, скачивая его при необходимости.
+  ///
+  /// Нужен автозапуску: превью Deezer/iTunes не должно играть 30 секунд —
+  /// вместо этого сохраняем полный трек в «Мои треки» и играем файл.
+  Future<Track?> ensureDownloaded(Track track) async {
+    if (track.isLocal) return track;
+
+    final existing = findDownloaded(track);
+    if (existing != null) return existing.copyWith(idOverride: track.id);
+
+    if (isDownloading) {
+      final active = _activeDownload;
+      if (active == null) return null;
+
+      final sameTrack = _task?.track.id == track.id;
+      await active;
+
+      final downloaded = findDownloaded(track);
+      if (downloaded != null) {
+        return downloaded.copyWith(idOverride: track.id);
+      }
+      // Ошибку уже показал DownloadProvider. Повторять её для того же
+      // трека сразу не нужно, иначе пользователь получит два снекбара.
+      if (sameTrack || isDownloading) return null;
+    }
+
+    final ok = await download(track);
+    if (!ok) return null;
+
+    final downloaded = findDownloaded(track);
+    return downloaded?.copyWith(idOverride: track.id);
+  }
 
   /// Скачивает [track]. Возвращает true при успехе.
   Future<bool> download(Track track) async {
@@ -80,6 +126,38 @@ class DownloadProvider extends ChangeNotifier {
       return false;
     }
 
+    final existing = findDownloaded(track);
+    if (existing != null) {
+      _task = DownloadTask(
+        track: track,
+        stage: DownloadStage.done,
+        progress: 1,
+        result: DownloadResult(
+          localPath: existing.localPath!,
+          publicPath: null,
+          title: existing.title,
+          artist: existing.artist,
+          durationSec: existing.durationSec,
+          artworkUrl: existing.artworkUrl,
+        ),
+      );
+      notifyListeners();
+      notice.value = DownloadNotice(
+        '«${existing.title}» уже есть в «Моих треках».',
+      );
+      return true;
+    }
+
+    final future = _performDownload(track);
+    _activeDownload = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_activeDownload, future)) _activeDownload = null;
+    }
+  }
+
+  Future<bool> _performDownload(Track track) async {
     _task = DownloadTask(track: track, stage: DownloadStage.resolving);
     notifyListeners();
 

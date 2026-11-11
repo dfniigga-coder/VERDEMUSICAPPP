@@ -120,9 +120,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 10),
           const Text(
-            'Нужен для секции «Похоже на …». Бесплатный ключ выдаётся на '
-            'last.fm/api/account/create. Без ключа секция скрывается, '
-            'остальные рекомендации работают.',
+            'Улучшает подборки «Похоже на …»: с ключом похожесть считается '
+            'по Last.fm. Без ключа Verde использует связанных исполнителей '
+            'Deezer и треки того же артиста. Бесплатный ключ: '
+            'last.fm/api/account/create.',
             style: TextStyle(
               color: AppTheme.textDim,
               fontSize: 12,

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../data/models/track.dart';
+import 'youtube_link.dart';
 
 /// Прямой аудиопоток YouTube, пригодный для just_audio и скачивания.
 class YoutubeAudio {
@@ -138,10 +139,12 @@ class YoutubeService {
     String artist, {
     int? durationSec,
     String? preferredVideoId,
+    int minDurationSec = _minDurationSec,
   }) async {
     final cleanTitle = title.trim();
     final cleanArtist = artist.trim();
     final preferred = preferredVideoId?.trim();
+    final minDuration = minDurationSec.clamp(_minDurationSec, _maxDurationSec);
 
     if (preferred != null && preferred.isNotEmpty) {
       return YoutubeMatch(
@@ -166,7 +169,7 @@ class YoutubeService {
       if (video.isLive) continue;
       final candidateDuration = video.duration?.inSeconds;
       if (candidateDuration != null &&
-          (candidateDuration < _minDurationSec ||
+          (candidateDuration < minDuration ||
               candidateDuration > _maxDurationSec)) {
         continue;
       }
@@ -198,6 +201,63 @@ class YoutubeService {
 
     if (best == null) return null;
     return best.match;
+  }
+
+  /// Метаданные конкретного видео по id — для скачивания по ссылке.
+  ///
+  /// У YouTube Music в watch page есть блок `musicData`: название и
+  /// исполнитель уже разложены по полям, поэтому он приоритетнее
+  /// разбора заголовка вида «Artist - Song».
+  Future<YoutubeMatch> resolveVideo(String videoId) async {
+    final id = videoId.trim();
+    if (!YoutubeLink.isVideoId(id)) {
+      throw const YoutubeException('Некорректная ссылка на видео YouTube.');
+    }
+
+    final Video video;
+    try {
+      video = await _youtube.videos.get(id).timeout(_manifestTimeout);
+    } catch (error) {
+      debugPrint('YoutubeService: resolve $id failed: $error');
+      throw const YoutubeException(
+        'Не удалось получить информацию о видео. Проверьте ссылку и соединение.',
+      );
+    }
+
+    if (video.isLive) {
+      throw const YoutubeException(
+        'Прямые трансляции нельзя скачать как трек.',
+      );
+    }
+
+    final durationSec = video.duration?.inSeconds;
+    if (durationSec != null && durationSec > _maxDurationSec) {
+      throw const YoutubeException(
+        'Видео длиннее часа — для одного MP3 это слишком много.',
+      );
+    }
+
+    final parsed = YoutubeTitleParser.parse(video.title, video.author);
+    final music = video.musicData.isEmpty ? null : video.musicData.first;
+    final musicTitle = music?.song?.trim();
+    // В structured description исполнитель иногда идёт как
+    // «Artist • Album» — для тега оставляем только исполнителя.
+    final musicArtist = music?.artist
+        ?.split(RegExp(r'\s*[•·]\s*'))
+        .first
+        .trim();
+
+    return YoutubeMatch(
+      videoId: video.id.value,
+      title: musicTitle != null && musicTitle.isNotEmpty
+          ? musicTitle
+          : parsed.title,
+      artist: musicArtist != null && musicArtist.isNotEmpty
+          ? musicArtist
+          : parsed.artist,
+      artworkUrl: video.thumbnails.highResUrl,
+      durationSec: durationSec,
+    );
   }
 
   /// Прямой аудиопоток для just_audio.

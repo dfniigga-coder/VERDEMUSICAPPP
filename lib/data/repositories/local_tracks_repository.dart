@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:on_audio_query_pluse/on_audio_query.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -72,6 +74,47 @@ class LocalTracksRepository extends ChangeNotifier {
   String _trackKey(Track track) =>
       '${track.title.trim().toLowerCase()}|'
       '${track.artist.trim().toLowerCase()}';
+
+  /// Ищет уже сохранённый MP3 с тем же названием и исполнителем.
+  ///
+  /// Нужно, чтобы автозапуск превью не создавал второй файл, если трек
+  /// уже скачивали вручную или он попал в «Мои треки» из Music/Verde.
+  Track? findDownloaded(Track track) {
+    if (track.isLocal) return track;
+
+    final key = _trackKey(track);
+    final titleKey = track.title.trim().toLowerCase();
+    final unknownArtist = _isUnknownArtist(track.artist);
+    for (final candidate in [..._saved, ..._cached]) {
+      if (!candidate.isLocal) continue;
+
+      // Если исполнитель неизвестен, сравниваем только название:
+      // при скачивании сервис мог подставить реального исполнителя.
+      final sameTrack = _trackKey(candidate) == key;
+      final sameTitle =
+          unknownArtist && candidate.title.trim().toLowerCase() == titleKey;
+      if (!sameTrack && !sameTitle) continue;
+
+      final path = candidate.localPath;
+      if (path == null || path.isEmpty) continue;
+
+      try {
+        if (!File(path).existsSync()) continue;
+      } catch (_) {
+        // Недоступный путь (например, отключённая SD-карта) пропускаем.
+        continue;
+      }
+      return candidate;
+    }
+    return null;
+  }
+
+  bool _isUnknownArtist(String artist) {
+    final value = artist.trim().toLowerCase();
+    return value.isEmpty ||
+        value == 'неизвестный исполнитель' ||
+        value == 'unknown artist';
+  }
 
   bool get hasLoaded => _cached.isNotEmpty || _saved.isNotEmpty;
 

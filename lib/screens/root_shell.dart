@@ -1,12 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/download_provider.dart';
 import '../providers/player_provider.dart';
+import '../services/incoming_link_service.dart';
+import '../services/youtube_link.dart';
 import 'home/home_screen.dart';
 import 'library/library_screen.dart';
 import 'search/search_screen.dart';
+import '../widgets/common.dart';
 import '../widgets/download_sheet.dart';
+import '../widgets/link_download_sheet.dart';
 import '../widgets/mini_player.dart';
 
 /// Каркас: bottom nav = 3 таба (IndexedStack сохраняет состояние),
@@ -23,6 +29,10 @@ class _RootShellState extends State<RootShell> {
   PlayerProvider? _playerRef;
   DownloadProvider? _downloadsRef;
 
+  final IncomingLinkService _incomingLinks = IncomingLinkService();
+  StreamSubscription<String>? _incomingLinkSubscription;
+  bool _handlingIncomingLink = false;
+
   @override
   void initState() {
     super.initState();
@@ -32,13 +42,72 @@ class _RootShellState extends State<RootShell> {
     // И о завершении скачивания — тоже из любого таба.
     _downloadsRef = context.read<DownloadProvider>();
     _downloadsRef!.notice.addListener(_showDownloadNotice);
+
+    // Ссылки из «Поделиться» YouTube Music и переходов по YouTube-ссылкам.
+    _incomingLinkSubscription = _incomingLinks.links.listen(
+      _handleIncomingLink,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_handleInitialLink());
+    });
   }
 
   @override
   void dispose() {
     _playerRef?.errorNotifier.removeListener(_showPlayError);
     _downloadsRef?.notice.removeListener(_showDownloadNotice);
+    _incomingLinkSubscription?.cancel();
     super.dispose();
+  }
+
+  Future<void> _handleInitialLink() async {
+    final link = await _incomingLinks.initialLink();
+    if (link != null && mounted) _handleIncomingLink(link);
+  }
+
+  /// Поделились ссылкой YouTube Music → сразу проверяем её и запускаем
+  /// скачивание в MP3. Для плейлистов и мусорного текста показываем
+  /// подсказку и ничего не скачиваем.
+  void _handleIncomingLink(String raw) {
+    if (!mounted || _handlingIncomingLink) return;
+
+    final link = YoutubeLink.parse(raw);
+    if (link == null) {
+      showAppSnackBar(
+        context,
+        'Ссылка не распознана. Нужна ссылка YouTube Music или YouTube.',
+        isError: true,
+      );
+      return;
+    }
+    if (!link.hasVideo) {
+      showAppSnackBar(
+        context,
+        'Это ссылка на плейлист. Откройте трек и поделитесь ссылкой на него.',
+        isError: true,
+      );
+      return;
+    }
+
+    final downloads = _downloadsRef;
+    if (downloads != null && downloads.isDownloading) {
+      showAppSnackBar(
+        context,
+        'Уже скачивается «${downloads.task!.track.title}». '
+        'Дождитесь окончания.',
+        isError: true,
+      );
+      return;
+    }
+
+    _handlingIncomingLink = true;
+    unawaited(
+      showLinkDownloadSheet(
+        context,
+        initialUrl: raw,
+        autoStart: true,
+      ).whenComplete(() => _handlingIncomingLink = false),
+    );
   }
 
   void _showPlayError() {

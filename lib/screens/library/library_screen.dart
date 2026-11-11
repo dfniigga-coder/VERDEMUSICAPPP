@@ -9,6 +9,7 @@ import '../../providers/library_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../widgets/common.dart';
 import '../../widgets/dialogs.dart';
+import '../../widgets/link_download_sheet.dart';
 import '../settings/settings_screen.dart';
 import 'liked_tracks_screen.dart';
 import 'local_tracks_screen.dart';
@@ -79,6 +80,13 @@ class LibraryScreen extends StatelessWidget {
             title: 'Добавить по ссылке',
             subtitle: 'Прямая ссылка на MP3',
             onTap: () => _addByUrl(context),
+          ),
+          LibraryTile(
+            icon: Icons.music_video_outlined,
+            title: 'Скачать с YouTube Music',
+            subtitle: 'Вставить ссылку → MP3',
+            iconColor: AppTheme.accentGreen,
+            onTap: () => showLinkDownloadSheet(context),
           ),
           const SizedBox(height: 12),
           Padding(

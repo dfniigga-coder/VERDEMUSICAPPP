@@ -10,8 +10,9 @@ import '../../widgets/track_card.dart';
 
 /// Главная в стиле YouTube Music: горизонтальные секции рекомендаций.
 ///
-/// Все данные считает [RecommendationService] локально. Если Last.fm или
-/// поиск недоступны, соответствующие секции просто не показываются.
+/// [RecommendationService] берёт несколько песен пользователя как семена и
+/// подбирает к ним похожие треки. Если Last.fm или поиск недоступны,
+/// соответствующие секции просто не показываются.
 class HomeScreen extends StatefulWidget {
   /// RootShell передаёт true, когда вкладка «Главная» выбрана.
   final bool isActive;
@@ -141,7 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             SizedBox(height: 2),
             Text(
-              'Рекомендации для вас',
+              'На основе вашей музыки',
               style: TextStyle(color: AppTheme.textDim, fontSize: 14),
             ),
           ],
@@ -156,8 +157,8 @@ class _HomeScreenState extends State<HomeScreen> {
       title: 'Слушайте музыку, чтобы получить рекомендации',
       subtitle: hasTaste
           ? 'Мы уже собираем подборки — потяните вниз, чтобы обновить.'
-          : 'История прослушиваний, лайки и локальная библиотека помогут '
-                'подобрать треки.',
+          : 'История прослушиваний, лайки, плейлисты и локальная '
+                'библиотека помогут подобрать треки.',
     );
   }
 }
@@ -172,6 +173,8 @@ class _RecommendationRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tracks = section.tracks;
+    final fullCount = tracks.where((track) => !track.isPreview).length;
+    final firstFull = tracks.indexWhere((track) => !track.isPreview);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -188,9 +191,8 @@ class _RecommendationRail extends StatelessWidget {
                       section.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                      style: Theme.of(context).textTheme.titleLarge
+                          ?.copyWith(fontWeight: FontWeight.w700),
                     ),
                     if (section.subtitle != null) ...[
                       const SizedBox(height: 2),
@@ -207,9 +209,13 @@ class _RecommendationRail extends StatelessWidget {
                   ],
                 ),
               ),
-              if (tracks.length > 3)
+              // Превью в очередь не попадают (иначе автопереход включит
+              // 30-секундный фрагмент), поэтому «Играть все» показываем
+              // только когда полных треков действительно несколько.
+              if (fullCount >= 3)
                 TextButton(
-                  onPressed: () => onPlay(tracks, 0),
+                  onPressed: () =>
+                      onPlay(tracks, firstFull < 0 ? 0 : firstFull),
                   style: TextButton.styleFrom(
                     foregroundColor: AppTheme.accentGreen,
                     visualDensity: VisualDensity.compact,
