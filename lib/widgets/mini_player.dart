@@ -25,7 +25,6 @@ class MiniPlayerBar extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
-                _progressLine(player),
                 InkWell(
                   onTap: () => _openFullPlayer(context),
                   child: SizedBox(
@@ -107,30 +106,6 @@ class MiniPlayerBar extends StatelessWidget {
               ],
             ),
           ),
-        );
-      },
-    );
-  }
-
-  /// Тонкая линия прогресса сверху.
-  Widget _progressLine(PlayerProvider player) {
-    return StreamBuilder<Duration>(
-      stream: player.handler.player.positionStream,
-      builder: (context, _) {
-        final duration = player.handler.player.duration;
-        final position = player.handler.player.position;
-        final value = duration == null || duration.inMilliseconds == 0
-            ? null
-            : (position.inMilliseconds / duration.inMilliseconds)
-                  .clamp(0.0, 1.0)
-                  .toDouble();
-        // Пока длительность неизвестна, не показываем бегущую полоску:
-        // пустая линия фиксированной высоты сохраняет layout.
-        if (value == null) return const SizedBox(height: 2);
-        return LinearProgressIndicator(
-          value: value,
-          minHeight: 2,
-          backgroundColor: Colors.transparent,
         );
       },
     );

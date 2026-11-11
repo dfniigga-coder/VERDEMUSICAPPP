@@ -7,6 +7,7 @@ import '../data/models/track.dart';
 import '../services/audio_player_handler.dart';
 import '../services/recommendation_service.dart';
 import '../services/youtube_service.dart';
+import 'download_provider.dart';
 
 /// UI-состояние плеера. Обёртка вокруг [AudioPlayerHandler]:
 /// хранит флаги для экранов и делегирует команды аудио-хендлеру.
@@ -19,8 +20,10 @@ class PlayerProvider extends ChangeNotifier {
     this._handler, {
     RecommendationService? recommendations,
     YoutubeService? youtube,
+    DownloadProvider? downloads,
   }) : _recommendations = recommendations,
-       _youtube = youtube {
+       _youtube = youtube,
+       _downloads = downloads {
     _handler.playbackState.map((s) => s.playing).distinct().listen((playing) {
       _playing = playing;
       notifyListeners();
@@ -70,6 +73,7 @@ class PlayerProvider extends ChangeNotifier {
   final AudioPlayerHandler _handler;
   final RecommendationService? _recommendations;
   final YoutubeService? _youtube;
+  final DownloadProvider? _downloads;
 
   bool _playing = false;
   ProcessingState _processing = ProcessingState.idle;
@@ -138,17 +142,22 @@ class PlayerProvider extends ChangeNotifier {
       // Очередь собирается мгновенно: для YouTube достаточно videoId,
       // а превью не требуют сетевых запросов. Другие превью в очередь
       // не ставим, иначе автопереход снова включит 30-секундный фрагмент.
+      // Уже скачанный MP3 подставляется сразу — он играет без сети.
       final playable = <Track>[];
       var playableStart = -1;
+      Track? playableStartTrack;
       for (var i = 0; i < tracks.length; i++) {
-        final track = tracks[i];
+        final track = _localCopy(tracks[i]);
         if (i != start && track.isPreview) continue;
         if (!_canPlay(track)) continue;
-        if (i == start) playableStart = playable.length;
+        if (i == start) {
+          playableStart = playable.length;
+          playableStartTrack = track;
+        }
         playable.add(track);
       }
 
-      if (playableStart < 0) {
+      if (playableStart < 0 || playableStartTrack == null) {
         errorNotifier.value = startTrack.source == TrackSource.youtube
             ? 'Не удалось получить аудио с YouTube. Выберите другой результат.'
             : 'Не удалось начать воспроизведение. Проверьте соединение.';
@@ -163,7 +172,11 @@ class PlayerProvider extends ChangeNotifier {
 
       // Превью уже играет — ищем полную версию в фоне и подменяем
       // источник через replaceTrack, не останавливая воспроизведение.
-      if (request == _playRequest) _upgradePreview(startTrack, request);
+      if (request == _playRequest &&
+          playableStartTrack.isPreview &&
+          !playableStartTrack.isLocal) {
+        _upgradePreview(startTrack, request);
+      }
     } catch (e) {
       if (request == _playRequest) {
         errorNotifier.value =
@@ -281,6 +294,9 @@ class PlayerProvider extends ChangeNotifier {
   /// в очереди не должно оставаться 30-секундных фрагментов. Остальные
   /// треки уже готовы к ленивому созданию источника.
   Future<Track?> _prepareQueueTrack(Track track) async {
+    final local = _localCopy(track);
+    if (local.isLocal && (local.localPath?.isNotEmpty ?? false)) return local;
+
     if (track.isPreview && !track.isLocal) {
       final full = await _findFullTrack(track);
       return full != null && _canPlay(full) ? full : null;
@@ -312,6 +328,12 @@ class PlayerProvider extends ChangeNotifier {
   /// история остаются привязанными к исходному треку. Повторные вызовы
   /// для одного трека переиспользуют уже идущий поиск.
   Future<Track?> _findFullTrack(Track preview) {
+    // Уже скачанный MP3 — самый быстрый «полный трек»: сеть не нужна.
+    final local = _localCopy(preview);
+    if (local.isLocal && (local.localPath?.isNotEmpty ?? false)) {
+      return Future.value(local);
+    }
+
     final id = preview.id;
     final running = _fullTrackInFlight[id];
     if (running != null) return running;
@@ -354,6 +376,22 @@ class PlayerProvider extends ChangeNotifier {
       );
       return null;
     }
+  }
+
+  /// Подставляет уже скачанный MP3 вместо сетевого источника.
+  ///
+  /// Идентификатор исходного трека сохраняется, поэтому лайки, плейлисты
+  /// и история прослушиваний продолжают работать как раньше.
+  Track _localCopy(Track track) {
+    final downloads = _downloads;
+    if (downloads == null || track.isLocal) return track;
+
+    final downloaded = downloads.findDownloaded(track);
+    if (downloaded == null) return track;
+
+    final path = downloaded.localPath;
+    if (path == null || path.isEmpty) return track;
+    return downloaded.copyWith(idOverride: track.id);
   }
 
   bool _canPlay(Track track) {

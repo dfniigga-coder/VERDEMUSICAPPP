@@ -7,7 +7,7 @@ import '../core/theme/app_theme.dart';
 /// Геометрический знак Verde в духе логотипа Perplexity:
 /// контурные диагонали и тонкая вертикальная ось.
 class VerdeLogoMark extends StatelessWidget {
-  /// Высота знака; ширина вычисляется из пропорций исходного пути.
+  /// Сторона квадратного знака.
   final double size;
 
   final Color color;
@@ -19,7 +19,7 @@ class VerdeLogoMark extends StatelessWidget {
     super.key,
     this.size = 30,
     this.color = AppTheme.accentGreen,
-    this.strokeWidth = 1.35,
+    this.strokeWidth = 2,
   });
 
   @override
@@ -77,22 +77,18 @@ class VerdeLogo extends StatelessWidget {
 }
 
 class _VerdeMarkPainter extends CustomPainter {
-  static const double viewWidth = 27.14;
-  static const double viewHeight = 36;
+  static const double viewWidth = 48;
+  static const double viewHeight = 48;
 
-  /// Исходный viewBox начинается с x = 0.5; сдвигаем его к нулю.
-  static const double _viewLeft = 0.5;
-
-  /// Путь из геометрического знака Perplexity. Используем только
-  /// контурную отрисовку: заливка превратила бы тонкие линии в пятна.
+  /// Геометрический знак Perplexity: вертикальная ось, раскрытая книга
+  /// и пересекающиеся контуры. Только обводка, без заливки.
   static const String _pathData =
-      'm23.566,1.398l-9.495,9.504h9.495V1.398v2.602V1.398Z'
-      'm-9.496,9.504L4.574,1.398v9.504h9.496Z'
-      'm-.021-10.902v36'
-      'm9.517-15.596l-9.495-9.504v13.625l9.495,9.504v-13.625Z'
-      'm-18.991,0l9.496-9.504v13.625l-9.496,9.504v-13.625Z'
-      'M.5,10.9v13.57h4.074v-4.066l9.496-9.504H.5Z'
-      'm13.57,0l9.495,9.504v4.066h4.075v-13.57h-13.57Z';
+      'M24 4.5v39'
+      'M13.73 16.573v-9.99L24 16.573'
+      'm0 14.5L13.73 41.417V27.01L24 16.573'
+      'm0 0l10.27-9.99v9.99'
+      'M13.73 31.396H9.44V16.573h29.12v14.823h-4.29'
+      'M24 16.573L34.27 27.01v14.407L24 31.073';
 
   final Color color;
   final double strokeWidth;
@@ -110,7 +106,7 @@ class _VerdeMarkPainter extends CustomPainter {
     );
     if (scale <= 0) return;
 
-    final dx = (size.width - viewWidth * scale) / 2 - _viewLeft * scale;
+    final dx = (size.width - viewWidth * scale) / 2;
     final dy = (size.height - viewHeight * scale) / 2;
 
     canvas.save();

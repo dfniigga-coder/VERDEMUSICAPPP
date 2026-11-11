@@ -38,12 +38,12 @@ Future<T?> safeRequest<T>(
   return null;
 }
 
-/// Ищет полную версию трека сначала на SoundCloud, затем на YouTube.
+/// Ищет полную версию трека сначала на YouTube, затем на SoundCloud.
 ///
-/// SoundCloud отдаёт прямой stream URL для just_audio. Для YouTube сервис
-/// извлекает прямой аудиопоток (m4a/webm), поэтому трек также играет
-/// в обычном плеере и в фоне. Если поток получить не удалось, остаётся
-/// videoId — UI откроет встроенный iFrame-плеер.
+/// YouTube через VISIONOS отдаёт прямой аудиопоток (m4a/webm) за пару
+/// секунд, поэтому трек играет в обычном плеере и в фоне. SoundCloud —
+/// запасной источник с готовым stream URL. Если поток получить не удалось,
+/// остаётся videoId — UI откроет встроенный iFrame-плеер.
 class FullTrackResolver {
   FullTrackResolver({required YoutubeService youtube, http.Client? httpClient})
     : _youtube = youtube,
@@ -112,17 +112,26 @@ class FullTrackResolver {
   }
 
   Future<ResolvedTrack?> _resolveUncached(String title, String artist) async {
+    // YouTube первым: прямой VISIONOS-поток стартует за пару секунд.
+    // SoundCloud остаётся запасным источником, если поток не получен.
+    final youtube = await _resolveYoutube(title, artist);
+    if (youtube != null && youtube.canPlayInJustAudio) return youtube;
+
     final soundcloud = await _resolveSoundcloud(title, artist);
     if (soundcloud != null) return soundcloud;
 
+    if (youtube == null) {
+      debugPrint('FullTrackResolver: no full source for "$title — $artist"');
+    }
+    return youtube;
+  }
+
+  Future<ResolvedTrack?> _resolveYoutube(String title, String artist) async {
     final match = await safeRequest<YoutubeMatch?>(
       () => _youtube.findBest(title, artist, minDurationSec: 60),
       source: 'youtube.search',
     );
-    if (match == null) {
-      debugPrint('FullTrackResolver: no full source for "$title — $artist"');
-      return null;
-    }
+    if (match == null) return null;
 
     final audio = await safeRequest<YoutubeAudio?>(
       () => _youtube.audioFor(match.videoId),

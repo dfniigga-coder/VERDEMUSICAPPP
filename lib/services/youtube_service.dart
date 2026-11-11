@@ -64,8 +64,10 @@ class YoutubeService {
       _ownsHttpClient = httpClient == null;
 
   static const Duration _audioCacheTtl = Duration(hours: 1);
+  static const Duration _playbackUrlTtl = Duration(hours: 1);
   static const Duration _searchCacheTtl = Duration(minutes: 10);
   static const Duration _searchTimeout = Duration(seconds: 9);
+  static const Duration _playbackResolveTimeout = Duration(seconds: 6);
 
   /// Короткие Shorts и бесконечные эфиры/монтажи отбрасываются, но длинные
   /// музыкальные вещи (сюиты, живые джемы) остаются доступными.
@@ -136,6 +138,8 @@ class YoutubeService {
 
   final Map<String, _CachedAudio> _audioCache = {};
   final Map<String, Future<AudioOnlyStreamInfo?>> _audioInFlight = {};
+  final Map<String, _CachedPlaybackUrl> _playbackUrlCache = {};
+  final Map<String, Future<String?>> _playbackUrlInFlight = {};
 
   String? _cachedSearchQuery;
   List<Track> _cachedSearchResults = const [];
@@ -194,6 +198,13 @@ class YoutubeService {
     _cachedSearchQuery = q;
     _cachedSearchResults = List.unmodifiable(tracks);
     _cachedSearchAt = DateTime.now();
+
+    // Первые результаты чаще всего и запускают: прогреваем их прямые
+    // ссылки заранее, чтобы нажатие «Играть» не ждало манифест.
+    prefetchPlaybackUrls(
+      tracks.take(2).map((track) => track.externalId ?? ''),
+      limit: 2,
+    );
     return _cachedSearchResults;
   }
 
@@ -325,14 +336,92 @@ class YoutubeService {
     );
   }
 
-  /// URL аудиопотока для just_audio.
+  /// Резервный URL через публичный Invidious-прокси.
   ///
-  /// Манифест YouTube здесь намеренно не запрашивается: он добавляет
-  /// 1–2 секунды к старту, а Invidious всё равно отдаёт файл через
-  /// собственный прокси. Вместе с URL нужно передать [streamHeaders].
+  /// Используется, только если прямой поток получить не удалось: прокси
+  /// сначала скачивает трек сам, поэтому старт может занимать минуты.
   String playbackUrl(String videoId, {bool preferMp4 = true}) {
     final host = _activeInvidiousHost ?? _invidiousFallbackHosts.first;
     return _invidiousStreamUrl(videoId, preferMp4 ? 140 : 251, host: host);
+  }
+
+  /// Прямая googlevideo-ссылка для just_audio.
+  ///
+  /// VISIONOS-манифест уже кэшируется для скачивания, поэтому поток
+  /// начинается за 1–2 секунды без промежуточного Invidious-прокси.
+  /// При ошибке возвращает `null` — вызывающая сторона переключится
+  /// на [playbackUrl].
+  Future<String?> playbackStreamUrl(
+    String videoId, {
+    Duration timeout = _playbackResolveTimeout,
+  }) {
+    if (_disposed) return Future.value(null);
+
+    final key = videoId.trim();
+    if (key.isEmpty) return Future.value(null);
+
+    final cached = _playbackUrlCache[key];
+    if (cached != null && !cached.isExpired) {
+      return Future.value(cached.url);
+    }
+
+    final running = _playbackUrlInFlight[key];
+    if (running != null) {
+      return running.timeout(timeout, onTimeout: () => null);
+    }
+
+    final future = _resolvePlaybackUrl(key)
+        .then<String?>((url) {
+          if (url != null && url.isNotEmpty) {
+            _playbackUrlCache[key] = _CachedPlaybackUrl(
+              url,
+              DateTime.now().add(_playbackUrlTtl),
+            );
+            return url;
+          }
+          return null;
+        })
+        .catchError((Object error, StackTrace stack) {
+          debugPrint('YoutubeService: playback url for $key failed: $error');
+          return null;
+        });
+
+    _playbackUrlInFlight[key] = future;
+    unawaited(
+      future.whenComplete(() {
+        _playbackUrlInFlight.remove(key);
+      }),
+    );
+    return future.timeout(timeout, onTimeout: () => null);
+  }
+
+  Future<String?> _resolvePlaybackUrl(String videoId) async {
+    final info = await _streamInfo(videoId, preferMp4: true, fast: true);
+    return info?.url.toString();
+  }
+
+  /// Полный VISIONOS-манифест (нужен для скачивания файла целиком).
+  Future<StreamManifest> _visionOsManifest(String videoId) {
+    return _youtube.videos.streams
+        .getManifest(
+          videoId,
+          requireWatchPage: true,
+          ytClients: [_visionOsClient],
+        )
+        .timeout(_manifestTimeout);
+  }
+
+  /// Прогревает прямые ссылки для следующих треков очереди.
+  void prefetchPlaybackUrls(Iterable<String> videoIds, {int limit = 3}) {
+    if (_disposed) return;
+    var started = 0;
+    for (final raw in videoIds) {
+      final id = raw.trim();
+      if (id.isEmpty) continue;
+      if (started >= limit) break;
+      started++;
+      unawaited(playbackStreamUrl(id));
+    }
   }
 
   /// Выбирает первый ответивший Invidious-хост.
@@ -421,13 +510,13 @@ class YoutubeService {
   /// Прямой аудиопоток для just_audio.
   ///
   /// По умолчанию выбирается MP4/AAC: он максимально совместим с Android.
-  /// URL берётся из VISIONOS-манифеста и кэшируется на час, поэтому
-  /// последующее скачивание не тратит время на повторный манифест.
+  /// URL кэшируется на час; для воспроизведения не ждём полный
+  /// VISIONOS-манифест, если быстрее ответил обычный.
   Future<YoutubeAudio?> audioFor(
     String videoId, {
     bool preferMp4 = true,
   }) async {
-    final info = await _streamInfo(videoId, preferMp4: preferMp4);
+    final info = await _streamInfo(videoId, preferMp4: preferMp4, fast: true);
     if (info == null) return null;
     return YoutubeAudio(
       videoId: videoId,
@@ -740,73 +829,158 @@ class YoutubeService {
     String videoId, {
     required bool preferMp4,
     bool forceRefresh = false,
+    bool fast = false,
   }) {
     if (_disposed) return Future.value(null);
 
     final key = _cacheKey(videoId, preferMp4: preferMp4);
     if (!forceRefresh) {
       final cached = _audioCache[key];
-      if (cached != null && !cached.isExpired) {
+      if (cached != null &&
+          !cached.isExpired &&
+          (fast || cached.reliable)) {
         return Future.value(cached.info);
       }
     } else {
       _audioCache.remove(key);
     }
 
-    final running = _audioInFlight[key];
+    // Быстрый и надёжный пути не делят один in-flight: скачивание не
+    // должно получить неполный поток от гонки манифестов.
+    final flightKey = fast ? '$key|fast' : '$key|safe';
+    final running = _audioInFlight[flightKey];
     if (running != null) return running;
 
-    final future = _loadStreamInfo(videoId, preferMp4: preferMp4)
-        .then<AudioOnlyStreamInfo?>((info) => info)
+    final future = _loadStreamInfo(videoId, preferMp4: preferMp4, fast: fast)
+        .then<AudioOnlyStreamInfo?>((result) {
+          final cached = _CachedAudio(
+            result.info,
+            DateTime.now().add(_audioCacheTtl),
+            reliable: result.reliable,
+          );
+          // Не затираем полный VISIONOS-манифест менее надёжным.
+          final existing = _audioCache[key];
+          if (existing == null || result.reliable || !existing.reliable) {
+            _audioCache[key] = cached;
+          }
+          return result.info;
+        })
         .catchError((Object error, StackTrace stack) {
           debugPrint('YoutubeService: manifest for $videoId failed: $error');
           return null;
-        })
-        .then((info) {
-          if (info != null) {
-            _audioCache[key] = _CachedAudio(
-              info,
-              DateTime.now().add(_audioCacheTtl),
-            );
-          }
-          return info;
         });
 
-    _audioInFlight[key] = future;
+    _audioInFlight[flightKey] = future;
     unawaited(
       future.whenComplete(() {
-        _audioInFlight.remove(key);
+        _audioInFlight.remove(flightKey);
       }),
     );
     return future;
   }
 
-  Future<AudioOnlyStreamInfo> _loadStreamInfo(
+  /// Запрашивает VISIONOS-манифест и, если он не ответил за 400 мс,
+  /// параллельно запускает обычный. Первый успешный манифест с аудио
+  /// выигрывает, поэтому холодный старт не ждёт медленный запасной вариант.
+  ///
+  /// При [fast] = false (скачивание) сначала дожидается полного
+  /// VISIONOS-манифеста и только при ошибке переходит к обычному.
+  Future<({StreamManifest manifest, bool reliable})> _loadManifest(
     String videoId, {
-    required bool preferMp4,
-  }) async {
-    StreamManifest manifest;
-    try {
-      // VISIONOS без watch page отвечает «Sign in to confirm you're not a
-      // bot», поэтому watch page здесь обязательна.
-      manifest = await _youtube.videos.streams
+    bool fast = true,
+  }) {
+    if (!fast) {
+      return _visionOsManifest(videoId).then(
+        (manifest) => (
+          manifest: manifest,
+          reliable: manifest.audioOnly.isNotEmpty,
+        ),
+        onError: (Object error, StackTrace stack) async {
+          debugPrint(
+            'YoutubeService: VISIONOS manifest failed for $videoId: $error',
+          );
+          final fallback = await _youtube.videos.streams
+              .getManifest(videoId, requireWatchPage: false)
+              .timeout(_manifestTimeout);
+          return (manifest: fallback, reliable: false);
+        },
+      );
+    }
+
+    final completer = Completer<({StreamManifest manifest, bool reliable})>();
+    Object? lastError;
+    var pending = 0;
+    var fallbackStarted = false;
+
+    void settle() {
+      if (pending == 0 && fallbackStarted && !completer.isCompleted) {
+        completer.completeError(
+          lastError ??
+              const YoutubeException('Не удалось получить аудио с YouTube.'),
+        );
+      }
+    }
+
+    void handle(Future<StreamManifest> future, {required bool reliable}) {
+      pending++;
+      future
+          .then<void>(
+            (manifest) {
+              if (!completer.isCompleted && manifest.audioOnly.isNotEmpty) {
+                completer.complete((manifest: manifest, reliable: reliable));
+              }
+            },
+            onError: (Object error, StackTrace stack) {
+              lastError = error;
+              debugPrint(
+                'YoutubeService: manifest for $videoId failed: $error',
+              );
+            },
+          )
+          .whenComplete(() {
+            pending--;
+            settle();
+          });
+    }
+
+    // VISIONOS без watch page отвечает «Sign in to confirm you're not a
+    // bot», поэтому watch page здесь обязательна.
+    handle(
+      _youtube.videos.streams
           .getManifest(
             videoId,
             requireWatchPage: true,
             ytClients: [_visionOsClient],
           )
-          .timeout(_manifestTimeout);
-    } catch (error) {
-      debugPrint(
-        'YoutubeService: VISIONOS manifest failed for $videoId: $error',
-      );
-      // Запасной вариант для видео, которым VISIONOS не подходит.
-      manifest = await _youtube.videos.streams
-          .getManifest(videoId, requireWatchPage: false)
-          .timeout(_manifestTimeout);
-    }
+          .timeout(_manifestTimeout),
+      reliable: true,
+    );
 
-    final candidates = manifest.audioOnly
+    Future<void>.delayed(const Duration(milliseconds: 400), () {
+      if (_disposed) return;
+      fallbackStarted = true;
+      if (!completer.isCompleted) {
+        handle(
+          _youtube.videos.streams
+              .getManifest(videoId, requireWatchPage: false)
+              .timeout(_manifestTimeout),
+          reliable: false,
+        );
+      }
+      settle();
+    });
+
+    return completer.future;
+  }
+
+  Future<({AudioOnlyStreamInfo info, bool reliable})> _loadStreamInfo(
+    String videoId, {
+    required bool preferMp4,
+    required bool fast,
+  }) async {
+    final loaded = await _loadManifest(videoId, fast: fast);
+
+    final candidates = loaded.manifest.audioOnly
         .where((stream) => stream.url.toString().isNotEmpty)
         .toList(growable: false);
     if (candidates.isEmpty) {
@@ -822,7 +996,7 @@ class YoutubeService {
         }
         return b.bitrate.compareTo(a.bitrate);
       });
-    return sorted.first;
+    return (info: sorted.first, reliable: loaded.reliable);
   }
 
   String _cacheKey(String videoId, {required bool preferMp4}) =>
@@ -1009,7 +1183,20 @@ class _CachedAudio {
   final AudioOnlyStreamInfo info;
   final DateTime expiresAt;
 
-  const _CachedAudio(this.info, this.expiresAt);
+  /// `true`, если URL получен из полного VISIONOS-манифеста. Такой поток
+  /// можно скачивать целиком, а не только первые ~1 МБ.
+  final bool reliable;
+
+  const _CachedAudio(this.info, this.expiresAt, {required this.reliable});
+
+  bool get isExpired => DateTime.now().isAfter(expiresAt);
+}
+
+class _CachedPlaybackUrl {
+  final String url;
+  final DateTime expiresAt;
+
+  const _CachedPlaybackUrl(this.url, this.expiresAt);
 
   bool get isExpired => DateTime.now().isAfter(expiresAt);
 }

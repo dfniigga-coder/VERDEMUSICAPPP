@@ -51,7 +51,7 @@ Future<void> main() async {
 
   // 4. Фоновый аудио-сервис (уведомление, экран блокировки, гарнитура)
   final audioHandler = await AudioService.init(
-    builder: () => AudioPlayerHandler(musicRepo),
+    builder: () => AudioPlayerHandler(musicRepo, youtubeService),
     config: const AudioServiceConfig(
       androidNotificationChannelId: 'com.verde.music.playback',
       androidNotificationChannelName: 'Воспроизведение Verde',
