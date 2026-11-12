@@ -72,7 +72,7 @@ class DownloadProvider extends ChangeNotifier {
   Future<Track> resolveLink(String input) => _service.resolveLink(input);
 
   /// Скачивает [track]. Возвращает true при успехе.
-  Future<bool> download(Track track) {
+  Future<bool> download(Track track) async {
     if (track.isLocal) {
       notice.value = const DownloadNotice(
         'Этот трек уже есть на устройстве.',
