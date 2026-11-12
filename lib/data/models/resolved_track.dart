@@ -112,13 +112,17 @@ class ResolvedTrack {
 
   /// Можно ли отдать трек в существующий just_audio/audio_service плеер.
   ///
-  /// YouTube тоже играет через just_audio: сервис извлекает прямой
-  /// аудиопоток, поэтому доступны фон, уведомление и экран блокировки.
-  bool get canPlayInJustAudio =>
-      (source == FullTrackSource.soundcloud ||
-          source == FullTrackSource.youtube) &&
-      streamUrl != null &&
-      streamUrl!.isNotEmpty;
+  /// YouTube играет через just_audio по videoId: прямой поток
+  /// резолвится лениво в AudioPlayerHandler, поэтому ждать streamUrl
+  /// при поиске полной версии не нужно.
+  bool get canPlayInJustAudio {
+    if (source == FullTrackSource.youtube) {
+      return (youtubeVideoId?.isNotEmpty ?? false) ||
+          (streamUrl?.isNotEmpty ?? false);
+    }
+    return source == FullTrackSource.soundcloud &&
+        (streamUrl?.isNotEmpty ?? false);
+  }
 
   /// Можно ли открыть встроенный YouTube-плеер.
   bool get canPlayInYoutube =>
@@ -131,13 +135,18 @@ class ResolvedTrack {
   /// Для YouTube поток играет через just_audio; если он недоступен,
   /// UI может открыть встроенный iFrame-плеер.
   Track toTrack({Track? fallback}) {
+    final isYoutube = source == FullTrackSource.youtube;
+    // Для YouTube videoId важнее streamUrl: обработчик строит ссылку
+    // лениво. Превью-URL из fallback (30 секунд) наследовать нельзя.
+    final youtubeId = isYoutube ? (youtubeVideoId ?? externalId) : null;
+
     return Track(
       source: source.trackSource,
-      externalId: externalId ?? fallback?.externalId,
+      externalId: youtubeId ?? externalId ?? fallback?.externalId,
       title: title,
       artist: artist,
       artworkUrl: artworkUrl ?? fallback?.artworkUrl,
-      streamUrl: streamUrl ?? fallback?.streamUrl,
+      streamUrl: isYoutube ? streamUrl : (streamUrl ?? fallback?.streamUrl),
       durationSec: durationSec ?? fallback?.durationSec,
       genre: fallback?.genre,
       isPreview: !isFullTrack,

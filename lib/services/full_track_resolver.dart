@@ -40,10 +40,9 @@ Future<T?> safeRequest<T>(
 
 /// Ищет полную версию трека сначала на YouTube, затем на SoundCloud.
 ///
-/// YouTube через VISIONOS отдаёт прямой аудиопоток (m4a/webm) за пару
-/// секунд, поэтому трек играет в обычном плеере и в фоне. SoundCloud —
-/// запасной источник с готовым stream URL. Если поток получить не удалось,
-/// остаётся videoId — UI откроет встроенный iFrame-плеер.
+/// Для YouTube достаточно videoId: прямой VISIONOS-поток резолвится
+/// лениво в аудио-хендлере, поэтому поиск не ждёт манифест и stream URL.
+/// SoundCloud остаётся запасным источником с прямым stream URL.
 class FullTrackResolver {
   FullTrackResolver({required YoutubeService youtube, http.Client? httpClient})
     : _youtube = youtube,
@@ -112,8 +111,8 @@ class FullTrackResolver {
   }
 
   Future<ResolvedTrack?> _resolveUncached(String title, String artist) async {
-    // YouTube первым: прямой VISIONOS-поток стартует за пару секунд.
-    // SoundCloud остаётся запасным источником, если поток не получен.
+    // YouTube первым: прямой VISIONOS-поток резолвится при запуске.
+    // SoundCloud остаётся запасным источником, если YouTube не найден.
     final youtube = await _resolveYoutube(title, artist);
     if (youtube != null && youtube.canPlayInJustAudio) return youtube;
 
@@ -133,16 +132,12 @@ class FullTrackResolver {
     );
     if (match == null) return null;
 
-    final audio = await safeRequest<YoutubeAudio?>(
-      () => _youtube.audioFor(match.videoId),
-      source: 'youtube.audio',
-    );
-
+    // streamUrl намеренно не запрашиваем: videoId достаточно, а манифест
+    // добавил бы 1–2 секунды к старту полной версии.
     return ResolvedTrack(
       title: match.title.trim().isEmpty ? title : match.title,
       artist: match.artist.trim().isEmpty ? artist : match.artist,
       artworkUrl: match.artworkUrl,
-      streamUrl: audio?.url,
       source: FullTrackSource.youtube,
       isFullTrack: true,
       youtubeVideoId: match.videoId,

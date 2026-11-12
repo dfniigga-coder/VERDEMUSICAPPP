@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Логотип на splash-экране; фон задаёт launch_background. -->
+<!-- Логотип на splash-экране; фон задаёт launch_background.
+     Тот же масштаб, что и у иконки приложения. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="120dp"
     android:height="120dp"

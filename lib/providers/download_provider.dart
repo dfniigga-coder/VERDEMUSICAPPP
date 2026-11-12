@@ -44,10 +44,6 @@ class DownloadProvider extends ChangeNotifier {
 
   DownloadTask? _task;
 
-  /// Future текущей задачи: автозапуск превью ждёт его, чтобы не
-  /// запускать вторую загрузку параллельно.
-  Future<bool>? _activeDownload;
-
   DownloadTask? get task => _task;
 
   bool get isDownloading => _task?.isActive ?? false;
@@ -75,41 +71,8 @@ class DownloadProvider extends ChangeNotifier {
   /// скачивания показывает их прямо в поле ввода.
   Future<Track> resolveLink(String input) => _service.resolveLink(input);
 
-  /// Возвращает локальный MP3 для трека, скачивая его при необходимости.
-  ///
-  /// Нужен автозапуску: превью Deezer/iTunes не должно играть 30 секунд —
-  /// вместо этого сохраняем полный трек в «Мои треки» и играем файл.
-  Future<Track?> ensureDownloaded(Track track) async {
-    if (track.isLocal) return track;
-
-    final existing = findDownloaded(track);
-    if (existing != null) return existing.copyWith(idOverride: track.id);
-
-    if (isDownloading) {
-      final active = _activeDownload;
-      if (active == null) return null;
-
-      final sameTrack = _task?.track.id == track.id;
-      await active;
-
-      final downloaded = findDownloaded(track);
-      if (downloaded != null) {
-        return downloaded.copyWith(idOverride: track.id);
-      }
-      // Ошибку уже показал DownloadProvider. Повторять её для того же
-      // трека сразу не нужно, иначе пользователь получит два снекбара.
-      if (sameTrack || isDownloading) return null;
-    }
-
-    final ok = await download(track);
-    if (!ok) return null;
-
-    final downloaded = findDownloaded(track);
-    return downloaded?.copyWith(idOverride: track.id);
-  }
-
   /// Скачивает [track]. Возвращает true при успехе.
-  Future<bool> download(Track track) async {
+  Future<bool> download(Track track) {
     if (track.isLocal) {
       notice.value = const DownloadNotice(
         'Этот трек уже есть на устройстве.',
@@ -148,13 +111,7 @@ class DownloadProvider extends ChangeNotifier {
       return true;
     }
 
-    final future = _performDownload(track);
-    _activeDownload = future;
-    try {
-      return await future;
-    } finally {
-      if (identical(_activeDownload, future)) _activeDownload = null;
-    }
+    return _performDownload(track);
   }
 
   Future<bool> _performDownload(Track track) async {

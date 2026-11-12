@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:on_audio_query_pluse/on_audio_query.dart';
@@ -32,6 +34,9 @@ Future<void> main() async {
   final audiusApi = AudiusApi(prefs);
   final musicRepo = MusicRepository(audiusApi, prefs);
   final youtubeService = YoutubeService();
+  // Прогреваем Invidious-хост заранее, чтобы первый трек стартовал
+  // без ожидания проверки зеркал.
+  unawaited(youtubeService.warmUpPlaybackHost());
   final searchApi = SearchApi(audiusApi, prefs, youtubeService);
   final localTracksRepo = LocalTracksRepository(OnAudioQuery(), prefs);
   final mp3DownloadService = Mp3DownloadService(

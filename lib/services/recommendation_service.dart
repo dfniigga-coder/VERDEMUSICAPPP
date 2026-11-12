@@ -936,6 +936,11 @@ class RecommendationService {
       return track.localPath?.isNotEmpty ?? false;
     }
     if (track.isAudius) return true;
+    if (track.source == TrackSource.youtube) {
+      // YouTube играет по videoId: Invidious-ссылка строится лениво.
+      return (track.externalId?.isNotEmpty ?? false) ||
+          (track.streamUrl?.isNotEmpty ?? false);
+    }
     return track.streamUrl?.isNotEmpty ?? false;
   }
 
