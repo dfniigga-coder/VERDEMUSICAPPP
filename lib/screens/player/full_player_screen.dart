@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -7,6 +9,7 @@ import '../../data/models/track.dart';
 import '../../providers/player_provider.dart';
 import '../../widgets/artwork.dart';
 import '../../widgets/download_sheet.dart';
+import '../../widgets/lyrics_sheet.dart';
 import '../../widgets/queue_sheet.dart';
 import '../../widgets/track_tile.dart';
 
@@ -56,43 +59,73 @@ class FullPlayerScreen extends StatelessWidget {
     }
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Column(
-          children: [
-            const Spacer(flex: 2),
-            _Artwork(player: player, track: track),
-            const Spacer(),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final artworkSize = math.min(
+            constraints.maxWidth - 48,
+            constraints.maxHeight * 0.36,
+          );
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
               children: [
-                Text(
-                  track.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
+                const Spacer(flex: 2),
+                _Artwork(player: player, track: track, size: artworkSize),
+                const Spacer(),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      track.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        color: AppTheme.textDim,
+                      ),
+                    ),
+                  ],
+                ),
+                const Spacer(),
+                _SeekBar(player: player),
+                const SizedBox(height: 12),
+                const _Controls(),
+                const SizedBox(height: 24),
+                _VolumeRow(player: player),
+                const SizedBox(height: 2),
+                TextButton.icon(
+                  onPressed: () => showLyricsSheet(context, track),
+                  icon: const Icon(Icons.lyrics_outlined, size: 18),
+                  label: const Text('Lyrics'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.accentGreen,
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  track.artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 15, color: AppTheme.textDim),
-                ),
               ],
             ),
-            const Spacer(),
-            _SeekBar(player: player),
-            const SizedBox(height: 12),
-            const _Controls(),
-            const SizedBox(height: 24),
-            _VolumeRow(player: player),
-            const SizedBox(height: 8),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -104,12 +137,16 @@ class _Artwork extends StatelessWidget {
 
   final Track track;
 
-  const _Artwork({required this.player, required this.track});
+  final double size;
+
+  const _Artwork({
+    required this.player,
+    required this.track,
+    required this.size,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size.width - 64;
-
     Widget art;
     if (track.artworkUrl != null && track.artworkUrl!.isNotEmpty) {
       art = ArtworkView(

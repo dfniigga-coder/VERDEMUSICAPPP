@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui' show ImageFilter;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +8,9 @@ import '../core/theme/app_theme.dart';
 
 /// Обложка трека/подборки: сетевая картинка с кэшированием,
 /// либо аккуратная заглушка с иконкой музыки.
+///
+/// Картинки не обрезаются: 16:9-превью YouTube вписывается в квадратную
+/// рамку целиком, а пустые поля заполняет размытая копия обложки.
 class ArtworkView extends StatelessWidget {
   final String? url;
 
@@ -38,16 +42,48 @@ class ArtworkView extends StatelessWidget {
 
     if (url == null || url!.isEmpty) return placeholder;
 
-    return ClipRRect(
-      borderRadius: borderRadius,
-      child: CachedNetworkImage(
+    Widget image({required BoxFit fit, Color? tint, double? blurSigma}) {
+      final child = CachedNetworkImage(
         imageUrl: url!,
         width: size,
         height: size,
-        fit: BoxFit.cover,
+        fit: fit,
         fadeInDuration: const Duration(milliseconds: 200),
         placeholder: (context, url) => placeholder,
         errorWidget: (context, url, error) => placeholder,
+        color: tint,
+        colorBlendMode: tint == null ? null : BlendMode.darken,
+      );
+
+      if (blurSigma == null) return child;
+      return ImageFiltered(
+        imageFilter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+        child: child,
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: borderRadius,
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Крупные обложки получают размытую подложку, чтобы поля
+            // 16:9-превью не выглядели пустыми. Для мелких иконок
+            // хватает спокойного фона — так список не тормозит.
+            if (size >= 80)
+              image(
+                fit: BoxFit.cover,
+                tint: Colors.black.withValues(alpha: 0.28),
+                blurSigma: 14,
+              )
+            else
+              ColoredBox(color: AppTheme.surfaceContainer),
+            image(fit: BoxFit.contain),
+          ],
+        ),
       ),
     );
   }

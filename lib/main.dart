@@ -19,6 +19,7 @@ import 'providers/player_provider.dart';
 import 'providers/search_provider.dart';
 import 'services/audio_player_handler.dart';
 import 'services/full_track_resolver.dart';
+import 'services/lyrics_service.dart';
 import 'services/mp3_download_service.dart';
 import 'services/recommendation_service.dart';
 import 'services/youtube_service.dart';
@@ -50,6 +51,7 @@ Future<void> main() async {
     localTracks: localTracksRepo,
   );
   final downloadProvider = DownloadProvider(mp3DownloadService);
+  final lyricsService = LyricsService();
 
   // 3. Разрешение на постоянные уведомления (Android 13+) — фон-плеер?
   await _requestNotificationPermission();
@@ -80,6 +82,10 @@ Future<void> main() async {
         ),
         Provider<Mp3DownloadService>(
           create: (_) => mp3DownloadService,
+          dispose: (_, service) => service.dispose(),
+        ),
+        Provider<LyricsService>(
+          create: (_) => lyricsService,
           dispose: (_, service) => service.dispose(),
         ),
         ChangeNotifierProvider<LocalTracksRepository>.value(

@@ -68,6 +68,12 @@
   repeat (off / все / трек)
 - Мини-плеер с прогрессом; тап открывает полноэкранный плеер
   (обложка, управление, очередь)
+- Текст песни: кнопка «Lyrics» в полноэкранном плеере, настоящие тексты
+  из LRCLIB без API-ключа. Синхронные строки подсвечиваются, плавно
+  прокручиваются и работают как перемотка по тапу; если текста нет —
+  честное «Текст не найден», без генерации
+- Обложки: 16:9-превью YouTube не обрезаются, а целиком вписываются
+  в квадратную рамку; свободные поля заполняет размытая копия обложки
 - Очередь воспроизведения: «играть следующим», «в конец очереди»,
   удаление и очистка
 - Библиотека: лайки, плейлисты (создать / переименовать / удалить /
@@ -87,7 +93,7 @@
 | UI | Flutter, Material 3, тёмная тема, SeedColor `#1DB954` |
 | Аудио | `just_audio` (playlist API 0.10), `audio_service` 0.18 |
 | Состояние | `provider` |
-| Сеть | `http` (Deezer, iTunes, Audius, Jamendo, Internet Archive, YouTube) |
+| Сеть | `http` (Deezer, iTunes, Audius, Jamendo, Internet Archive, YouTube, LRCLIB) |
 | Полные версии | `soundcloud_explode_dart`, `youtube_explode_dart`, `youtube_player_iframe` |
 | Скачивание | `ffmpeg_kit_flutter_new_audio`, `path_provider`, MediaStore |
 | Хранение | `shared_preferences` |
