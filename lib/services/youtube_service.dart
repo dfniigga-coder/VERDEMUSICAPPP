@@ -67,7 +67,12 @@ class YoutubeService {
   static const Duration _playbackUrlTtl = Duration(hours: 1);
   static const Duration _searchCacheTtl = Duration(minutes: 10);
   static const Duration _searchTimeout = Duration(seconds: 9);
-  static const Duration _playbackResolveTimeout = Duration(seconds: 6);
+
+  /// Сколько ждём прямой поток перед тем, как запустить трек через
+  /// Invidious. Android SDK-less клиент обычно отвечает за 0,4–1,2 с, а
+  /// VISIONOS — за 1,5–2,5 с. Три секунды оставляют запас на медленную
+  /// сеть и при этом укладываются в обещанный старт «за 3–4 секунды».
+  static const Duration _playbackResolveTimeout = Duration(seconds: 3);
 
   /// Короткие Shorts и бесконечные эфиры/монтажи отбрасываются, но длинные
   /// музыкальные вещи (сюиты, живые джемы) остаются доступными.
@@ -134,14 +139,13 @@ class YoutubeService {
 
   /// Запасные клиенты YouTube.
   ///
-  /// VISIONOS обычно отдаёт лучший поток, но часть роликов доступна только
-  /// другим клиентам (например, без возрастных ограничений или без
-  /// отдельных аудио-дорожек). Клиенты перебираются по одному: пакет при
-  /// передаче списка опрашивает их все подряд и только потом возвращает
-  /// манифест, что заметно замедляет старт воспроизведения.
+  /// Порядок важен для скорости: Android SDK-less отвечает за 0,4–1,2 с и
+  /// не требует PO-токена, поэтому идёт первым. Android VR иногда сразу
+  /// отдаёт «Sign in to confirm you're not a bot» — он нужен только как
+  /// страховка. iOS отвечает медленнее всех и стоит последним.
   static final List<YoutubeApiClient> _fallbackClients = [
-    YoutubeApiClient.androidVr,
     YoutubeApiClient.androidSdkless,
+    YoutubeApiClient.androidVr,
     YoutubeApiClient.ios,
   ];
 
@@ -413,6 +417,43 @@ class YoutubeService {
     return info?.url.toString();
   }
 
+  /// true, если для трека уже получен полный VISIONOS-поток.
+  ///
+  /// Быстрый Android SDK-less даёт мгновенный старт, но отдаёт только
+  /// первые ~1 МБ файла (дальше 403). Поэтому после старта его нужно
+  /// заменить надёжным VISIONOS-потоком.
+  bool isReliablePlayback(String videoId) {
+    final key = videoId.trim();
+    if (key.isEmpty) return false;
+    return _audioCache[_cacheKey(key, preferMp4: true)]?.reliable ?? false;
+  }
+
+  /// Надёжная (VISIONOS) ссылка для фоновой подмены источника.
+  ///
+  /// Не использует быстрый кэш: если там лежит SDK-less URL, запрашивает
+  /// полный VISIONOS-манифест. Ошибка/таймаут возвращают `null`, а
+  /// запоздавший ответ всё равно попадёт в кэш для следующей попытки.
+  Future<String?> reliablePlaybackStreamUrl(
+    String videoId, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    if (_disposed) return null;
+    final key = videoId.trim();
+    if (key.isEmpty) return null;
+
+    try {
+      final info = await _streamInfo(
+        key,
+        preferMp4: true,
+        fast: false,
+      ).timeout(timeout);
+      return info?.url.toString();
+    } catch (error) {
+      debugPrint('YoutubeService: reliable url for $key failed: $error');
+      return null;
+    }
+  }
+
   /// Полный VISIONOS-манифест (нужен для скачивания файла целиком).
   Future<StreamManifest> _visionOsManifest(String videoId) {
     return _youtube.videos.streams
@@ -450,7 +491,15 @@ class YoutubeService {
   }
 
   /// Прогревает прямые ссылки для следующих треков очереди.
-  void prefetchPlaybackUrls(Iterable<String> videoIds, {int limit = 3}) {
+  ///
+  /// [reliable] = true запрашивает полный VISIONOS-поток: он нужен для
+  /// фоновой подмены источника, потому что быстрый SDK-less отдаёт
+  /// только первые ~1 МБ файла.
+  void prefetchPlaybackUrls(
+    Iterable<String> videoIds, {
+    int limit = 3,
+    bool reliable = false,
+  }) {
     if (_disposed) return;
     var started = 0;
     for (final raw in videoIds) {
@@ -458,7 +507,9 @@ class YoutubeService {
       if (id.isEmpty) continue;
       if (started >= limit) break;
       started++;
-      unawaited(playbackStreamUrl(id));
+      unawaited(
+        reliable ? reliablePlaybackStreamUrl(id) : playbackStreamUrl(id),
+      );
     }
   }
 
@@ -899,6 +950,14 @@ class YoutubeService {
           if (existing == null || result.reliable || !existing.reliable) {
             _audioCache[key] = cached;
           }
+          // Надёжный URL сразу становится основным: иначе быстрый кэш
+          // продолжил бы отдавать SDK-less-ссылку, ограниченную ~1 МБ.
+          if (result.reliable && preferMp4) {
+            _playbackUrlCache[videoId] = _CachedPlaybackUrl(
+              result.info.url.toString(),
+              DateTime.now().add(_playbackUrlTtl),
+            );
+          }
           return result.info;
         })
         .catchError((Object error, StackTrace stack) {
@@ -915,9 +974,12 @@ class YoutubeService {
     return future;
   }
 
-  /// Запрашивает VISIONOS-манифест и, если он не ответил за 400 мс,
-  /// параллельно запускает обычный. Первый успешный манифест с аудио
-  /// выигрывает, поэтому холодный старт не ждёт медленный запасной вариант.
+  /// Запрашивает VISIONOS, а через 1,2 с — запасные клиенты.
+  ///
+  /// VISIONOS отдаёт поток на весь файл, поэтому запускается первым.
+  /// Если он не успевает, быстрый Android SDK-less спасает старт; его
+  /// источник затем подменяется надёжным VISIONOS-потоком в фоне.
+  /// Первый манифест с аудио выигрывает.
   ///
   /// При [fast] = false (скачивание) сначала дожидается полного
   /// VISIONOS-манифеста и только при ошибке переходит к обычному.
@@ -986,7 +1048,11 @@ class YoutubeService {
     }
 
     // VISIONOS без watch page отвечает «Sign in to confirm you're not a
-    // bot», поэтому watch page здесь обязательна.
+    // bot», поэтому watch page здесь обязательна. Он отдаёт надёжный
+    // поток на весь файл, поэтому запускается первым. SDK-less клиент
+    // стартует с небольшой задержкой: если VISIONOS успевает за
+    // 1,5–2,5 с, мы сразу получаем надёжный источник; если нет —
+    // быстрый SDK-less спасает старт, а полный поток подменится в фоне.
     handle(
       _youtube.videos.streams
           .getManifest(
@@ -998,15 +1064,13 @@ class YoutubeService {
       reliable: true,
     );
 
-    Future<void>.delayed(const Duration(milliseconds: 400), () {
-      if (_disposed) return;
+    Future<void>.delayed(const Duration(milliseconds: 1200), () {
+      if (_disposed || completer.isCompleted) return;
       fallbackStarted = true;
-      if (!completer.isCompleted) {
-        handle(
-          _fallbackManifest(videoId).timeout(_manifestTimeout),
-          reliable: false,
-        );
-      }
+      handle(
+        _fallbackManifest(videoId).timeout(_manifestTimeout),
+        reliable: false,
+      );
       settle();
     });
 
