@@ -163,7 +163,7 @@ class _SyncedLyricsState extends State<_SyncedLyrics> {
     super.initState();
     _keys = List.generate(widget.lyrics.lines.length, (_) => GlobalKey());
     _player = context.read<PlayerProvider>();
-    _active = _indexFor(_player.position);
+    _active = _indexFor(_player.handler.player.position);
     _positionSubscription = _player.handler.player.positionStream.listen(
       _onPosition,
     );

@@ -90,13 +90,14 @@ class DownloadProvider extends ChangeNotifier {
     }
 
     final existing = findDownloaded(track);
-    if (existing != null) {
+    final existingPath = existing?.localPath;
+    if (existing != null && existingPath != null && existingPath.isNotEmpty) {
       _task = DownloadTask(
         track: track,
         stage: DownloadStage.done,
         progress: 1,
         result: DownloadResult(
-          localPath: existing.localPath!,
+          localPath: existingPath,
           publicPath: null,
           title: existing.title,
           artist: existing.artist,

@@ -160,6 +160,10 @@ class LocalTracksRepository extends ChangeNotifier {
     for (final rawPath in paths) {
       final path = rawPath.trim();
       if (path.isEmpty) continue;
+      if (!File(path).existsSync()) {
+        debugPrint('LocalTracksRepository: file not found: $path');
+        continue;
+      }
 
       final track = _trackFromPath(path);
       if (existing.contains(track.id)) continue;
@@ -187,6 +191,10 @@ class LocalTracksRepository extends ChangeNotifier {
     int? durationSec,
     String? artworkUrl,
   }) async {
+    if (!File(path).existsSync()) {
+      debugPrint('LocalTracksRepository: downloaded file not found: $path');
+      return false;
+    }
     final track = Track.downloaded(
       path: path,
       title: title,

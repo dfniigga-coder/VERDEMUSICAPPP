@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Verde plays audio from many independent services (Audius CDN, Jamendo,
+  Internet Archive, SoundCloud, прямые ссылки пользователя). Часть из них
+  до сих пор отдаёт файлы по HTTP или редиректит на HTTP-CDN.
+
+  Android 9+ по умолчанию блокирует cleartext HTTP, из-за чего такие треки
+  молча не запускаются («аудио не поддерживается»). Разрешаем cleartext
+  только для медиа-запросов приложения: HTTPS остаётся основным путём.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

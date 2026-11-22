@@ -1,9 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/constants.dart';
-import '../../core/errors/app_exceptions.dart';
 import '../models/playlist.dart';
 import '../models/track.dart';
 
@@ -124,46 +124,77 @@ class LibraryRepository {
 
   // --- Загрузка и сохранение ----------------------------------------------
 
+  /// Читает библиотеку из shared_preferences.
+  ///
+  /// Метод намеренно никогда не бросает исключение: повреждённый JSON
+  /// (обрыв записи, старая версия формата) не должен мешать запуску
+  /// приложения. Битые разделы очищаются по отдельности, остальные
+  /// остаются доступными.
   void load() {
+    _loadLiked();
+    _loadPlaylists();
+    _loadRecentSearches();
+  }
+
+  void _loadLiked() {
     try {
-      final likedRaw = _prefs.getString(AppConstants.likedTracksKey);
+      final raw = _prefs.getString(AppConstants.likedTracksKey);
       _liked
         ..clear()
-        ..addEntries(
-          Track.listFromDynamic(likedRaw).map((t) => MapEntry(t.id, t)),
-        );
-
-      final plRaw = _prefs.getString(AppConstants.playlistsKey);
-      final loaded = <Playlist>[];
-      if (plRaw != null && plRaw.isNotEmpty) {
-        final decoded = jsonDecode(plRaw);
-        if (decoded is List) {
-          for (final item in decoded.whereType<Map>()) {
-            try {
-              loaded.add(Playlist.fromJson(item));
-            } catch (_) {
-              // пропускаем повреждённый плейлист
-            }
-          }
-        }
-      }
-      _playlists = loaded
-          .where((p) => p.id.isNotEmpty && p.name.trim().isNotEmpty)
-          .toList(growable: false);
-
-      final recentRaw = _prefs.getString(AppConstants.recentSearchesKey);
-      if (recentRaw != null && recentRaw.isNotEmpty) {
-        final decoded = jsonDecode(recentRaw);
-        if (decoded is List) {
-          _recentSearches = decoded.whereType<String>().toList();
-        }
-      }
-    } on FormatException {
-      throw const StorageException();
+        ..addEntries(Track.listFromDynamic(raw).map((t) => MapEntry(t.id, t)));
     } catch (_) {
-      // Повреждённые данные не должны ломать приложение.
+      _liked.clear();
+    }
+  }
+
+  void _loadPlaylists() {
+    final raw = _prefs.getString(AppConstants.playlistsKey);
+    if (raw == null || raw.isEmpty) {
       _playlists = [];
+      return;
+    }
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) {
+        _playlists = [];
+        unawaited(_prefs.remove(AppConstants.playlistsKey));
+        return;
+      }
+
+      final loaded = <Playlist>[];
+      for (final item in decoded.whereType<Map>()) {
+        try {
+          final playlist = Playlist.fromJson(item);
+          if (playlist.id.isNotEmpty && playlist.name.trim().isNotEmpty) {
+            loaded.add(playlist);
+          }
+        } catch (_) {
+          // Пропускаем повреждённый плейлист, остальные сохраняем.
+        }
+      }
+      _playlists = loaded;
+    } catch (_) {
+      _playlists = [];
+      unawaited(_prefs.remove(AppConstants.playlistsKey));
+    }
+  }
+
+  void _loadRecentSearches() {
+    final raw = _prefs.getString(AppConstants.recentSearchesKey);
+    if (raw == null || raw.isEmpty) {
       _recentSearches = [];
+      return;
+    }
+
+    try {
+      final decoded = jsonDecode(raw);
+      _recentSearches = decoded is List
+          ? decoded.whereType<String>().toList(growable: false)
+          : [];
+    } catch (_) {
+      _recentSearches = [];
+      unawaited(_prefs.remove(AppConstants.recentSearchesKey));
     }
   }
 

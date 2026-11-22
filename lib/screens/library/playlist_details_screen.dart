@@ -298,13 +298,23 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
   Future<void> _loadLocal() async {
     setState(() => _loading = true);
     final repo = context.read<LocalTracksRepository>();
-    final result = await repo.loadTracks();
-    if (!mounted) return;
-    setState(() {
-      _results = result.hasPermission ? result.tracks : const [];
-      _error = result.hasPermission ? null : 'Нет доступа к аудиофайлам';
-      _loading = false;
-    });
+    try {
+      final result = await repo.loadTracks();
+      if (!mounted) return;
+      setState(() {
+        _results = result.hasPermission ? result.tracks : const [];
+        _error = result.hasPermission ? null : 'Нет доступа к аудиофайлам';
+        _loading = false;
+      });
+    } catch (error) {
+      debugPrint('PlaylistDetails: local tracks failed: $error');
+      if (!mounted) return;
+      setState(() {
+        _results = const [];
+        _error = 'Не удалось прочитать файлы на устройстве.';
+        _loading = false;
+      });
+    }
   }
 
   void _onQueryChanged(String value) {

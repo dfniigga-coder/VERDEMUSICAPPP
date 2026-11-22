@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -30,13 +32,16 @@ class TrackTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<PlayerProvider>();
-    final isCurrent = provider.currentTrack?.id == track.id;
+    final isCurrent = context.select<PlayerProvider, bool>(
+      (player) => player.currentTrack?.id == track.id,
+    );
 
     return ListTile(
       onTap: onTap,
       onLongPress: onLongPress,
-      tileColor: isCurrent ? AppTheme.accentGreen.withValues(alpha: 0.08) : null,
+      tileColor: isCurrent
+          ? AppTheme.accentGreen.withValues(alpha: 0.08)
+          : null,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       leading: _leading(),
       title: Text(
@@ -105,15 +110,41 @@ class TrackTile extends StatelessWidget {
 }
 
 /// Обложка локального трека — грузит artwork по id песни.
-class _LocalLeading extends StatelessWidget {
+///
+/// Future кэшируется в состоянии: без этого каждый ребилд строки
+/// (например, при смене текущего трека) заново запрашивал бы обложку
+/// из MediaStore.
+class _LocalLeading extends StatefulWidget {
   final int songId;
 
   const _LocalLeading({required this.songId});
 
   @override
+  State<_LocalLeading> createState() => _LocalLeadingState();
+}
+
+class _LocalLeadingState extends State<_LocalLeading> {
+  Future<Uint8List?>? _artwork;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadArtwork();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LocalLeading oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.songId != widget.songId) _loadArtwork();
+  }
+
+  void _loadArtwork() {
+    _artwork = context.read<LocalTracksRepository>().artwork(widget.songId);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final repo = context.read<LocalTracksRepository>();
-    return LocalArtworkView(size: 52, artwork: repo.artwork(songId));
+    return LocalArtworkView(size: 52, artwork: _artwork);
   }
 }
 

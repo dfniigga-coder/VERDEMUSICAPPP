@@ -103,27 +103,12 @@ class MiniPlayerBar extends StatelessWidget {
                     ),
                   ),
                 ),
-                // Тонкая статичная полоска прогресса (без анимации/shimmer).
-                Builder(
-                  builder: (context) {
-                    final player = context.watch<PlayerProvider>();
-                    final duration = player.duration;
-                    final position = player.position;
-                    final value = (duration != null &&
-                            duration.inMilliseconds > 0)
-                        ? (position.inMilliseconds / duration.inMilliseconds)
-                            .clamp(0.0, 1.0)
-                        : null;
-                    return LinearProgressIndicator(
-                      value: value,
-                      minHeight: 2,
-                      backgroundColor: AppTheme.surfaceContainer,
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        AppTheme.accentGreen,
-                      ),
-                    );
-                  },
-                ),
+                // Тонкая статичная полоска прогресса.
+                //
+                // Позицию берём напрямую из just_audio: PlayerProvider
+                // намеренно не рассылает уведомления на каждый тик, иначе
+                // перестраивался бы весь список треков.
+                const _MiniProgressBar(),
               ],
             ),
           ),
@@ -138,6 +123,39 @@ class MiniPlayerBar extends StatelessWidget {
         fullscreenDialog: true,
         builder: (_) => const FullPlayerScreen(),
       ),
+    );
+  }
+}
+
+/// Полоска прогресса мини-плеера.
+///
+/// Слушает [AudioPlayer.positionStream] напрямую: обновления позиции
+/// происходят несколько раз в секунду и не должны перестраивать дерево
+/// через [PlayerProvider].
+class _MiniProgressBar extends StatelessWidget {
+  const _MiniProgressBar();
+
+  @override
+  Widget build(BuildContext context) {
+    final player = context.read<PlayerProvider>().handler.player;
+    return StreamBuilder<Duration>(
+      stream: player.positionStream,
+      builder: (context, snapshot) {
+        final duration = player.duration;
+        final position = snapshot.data ?? Duration.zero;
+        final value = (duration != null && duration.inMilliseconds > 0)
+            ? (position.inMilliseconds / duration.inMilliseconds).clamp(
+                0.0,
+                1.0,
+              )
+            : null;
+        return LinearProgressIndicator(
+          value: value,
+          minHeight: 2,
+          backgroundColor: AppTheme.surfaceContainer,
+          valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.accentGreen),
+        );
+      },
     );
   }
 }

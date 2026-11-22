@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
@@ -26,10 +27,15 @@ class AudioPlayerHandler extends BaseAudioHandler
 
     // При смене позиции в очереди обновляем MediaItem уведомления и
     // заранее готовим прямые ссылки для следующих треков.
-    _player.currentIndexStream.listen((index) {
-      _updateCurrentMediaItem(index);
-      if (index != null) _prefetchUpcoming(index);
-    });
+    _player.currentIndexStream.listen(
+      (index) {
+        _updateCurrentMediaItem(index);
+        if (index != null) _prefetchUpcoming(index);
+      },
+      onError: (Object error, StackTrace stack) {
+        debugPrint('AudioPlayerHandler: currentIndex stream error: $error');
+      },
+    );
   }
 
   final MusicRepository _musicRepo;
@@ -57,6 +63,11 @@ class AudioPlayerHandler extends BaseAudioHandler
   // --- Очередь -------------------------------------------------------------
 
   /// Воспроизводит список треков, начиная с [startIndex].
+  ///
+  /// Источники строятся до изменения очереди: если стартовый трек не удаётся
+  /// подготовить, текущее воспроизведение не прерывается. Треки без
+  /// пригодного источника просто не попадают в очередь, вместо того чтобы
+  /// уронить её всю.
   Future<void> playTracks(
     List<Track> tracks, {
     int startIndex = 0,
@@ -65,23 +76,56 @@ class AudioPlayerHandler extends BaseAudioHandler
     if (tracks.isEmpty) return;
     if (startIndex < 0 || startIndex >= tracks.length) startIndex = 0;
 
+    final AudioSource startSource;
+    try {
+      startSource = await _sourceForAsync(tracks[startIndex]);
+    } catch (error) {
+      debugPrint(
+        'AudioPlayerHandler: start source failed for '
+        '${tracks[startIndex].title}: $error',
+      );
+      throw const TrackLoadException(
+        'Не удалось подготовить трек к воспроизведению.',
+      );
+    }
+
+    final queueTracks = <Track>[];
+    final sources = <AudioSource>[];
+    var initialIndex = 0;
+
+    for (var i = 0; i < tracks.length; i++) {
+      final track = tracks[i];
+      final AudioSource source;
+      if (i == startIndex) {
+        source = startSource;
+      } else {
+        try {
+          source = _sourceFor(track);
+        } catch (error) {
+          debugPrint(
+            'AudioPlayerHandler: skipping ${track.title} (${track.source.name}): '
+            '$error',
+          );
+          continue;
+        }
+      }
+      if (i == startIndex) initialIndex = queueTracks.length;
+      queueTracks.add(track);
+      sources.add(source);
+    }
+
+    if (sources.isEmpty) {
+      throw const TrackLoadException('В очереди нет воспроизводимых треков.');
+    }
+
     _tracks
       ..clear()
-      ..addAll(tracks);
+      ..addAll(queueTracks);
 
     // Держим очередь audio_service в том же порядке, что и _tracks:
     // addToQueue/removeFromQueue/clearQueue работают с queue.value.
     // Список должен быть изменяемым: QueueHandler добавляет элементы на месте.
-    queue.add([for (final t in tracks) _mediaItemFor(t)]);
-
-    // Текущий трек получает прямой googlevideo-URL: это 1–2 секунды до
-    // звука вместо минуты через публичный Invidious-прокси. Остальные
-    // источники создаются без сети и обновляются в фоне.
-    final startSource = await _sourceForAsync(tracks[startIndex]);
-    final sources = <AudioSource>[
-      for (var i = 0; i < tracks.length; i++)
-        i == startIndex ? startSource : _sourceFor(tracks[i]),
-    ];
+    queue.add([for (final t in queueTracks) _mediaItemFor(t)]);
 
     if (shuffle && !_player.shuffleModeEnabled) {
       await _player.setShuffleModeEnabled(true);
@@ -92,25 +136,43 @@ class AudioPlayerHandler extends BaseAudioHandler
 
     await _player.setAudioSources(
       sources,
-      initialIndex: startIndex,
+      initialIndex: initialIndex,
       initialPosition: Duration.zero,
     );
 
-    _updateCurrentMediaItem(startIndex);
-    unawaited(_player.play());
-    _prefetchUpcoming(startIndex);
+    _updateCurrentMediaItem(initialIndex);
+    _startPlayback();
+    _prefetchUpcoming(initialIndex);
   }
 
   /// Добавляет трек в конец очереди (или запускает, если очередь пуста).
   Future<void> addToQueue(Track track) async {
-    final mediaItem = _mediaItemFor(track);
     if (_tracks.isEmpty) {
       await playTracks([track]);
       return;
     }
+
+    // Источник строим до изменения списков: ошибка не должна оставлять
+    // очередь и just_audio в разных состояниях.
+    final source = _sourceFor(track);
+    final mediaItem = _mediaItemFor(track);
+
     _tracks.add(track);
     await addQueueItem(mediaItem);
-    await _player.addAudioSource(_sourceFor(track));
+    try {
+      await _player.addAudioSource(source);
+    } catch (error) {
+      debugPrint('AudioPlayerHandler: addToQueue failed: $error');
+      if (_tracks.isNotEmpty && _tracks.last.id == track.id) {
+        _tracks.removeLast();
+      }
+      try {
+        await removeQueueItem(mediaItem);
+      } catch (_) {
+        // Метаданные очереди не критичны для воспроизведения.
+      }
+      rethrow;
+    }
     _prefetchUpcoming(_player.currentIndex ?? 0);
   }
 
@@ -121,9 +183,26 @@ class AudioPlayerHandler extends BaseAudioHandler
       await addToQueue(track);
       return;
     }
+
+    final source = _sourceFor(track);
+    final mediaItem = _mediaItemFor(track);
+
     _tracks.insert(insertAt, track);
-    await insertQueueItem(insertAt, _mediaItemFor(track));
-    await _player.insertAudioSource(insertAt, _sourceFor(track));
+    await insertQueueItem(insertAt, mediaItem);
+    try {
+      await _player.insertAudioSource(insertAt, source);
+    } catch (error) {
+      debugPrint('AudioPlayerHandler: playNext failed: $error');
+      if (insertAt < _tracks.length && _tracks[insertAt].id == track.id) {
+        _tracks.removeAt(insertAt);
+      }
+      try {
+        await removeQueueItem(mediaItem);
+      } catch (_) {
+        // Метаданные очереди не критичны для воспроизведения.
+      }
+      rethrow;
+    }
     _prefetchUpcoming(_player.currentIndex ?? 0);
   }
 
@@ -139,19 +218,25 @@ class AudioPlayerHandler extends BaseAudioHandler
     }
 
     final resolvedSource = await _sourceForAsync(resolved);
+
+    // Собираем источники до изменения _tracks: если подготовка упадёт,
+    // текущая очередь останется нетронутой.
+    final nextTracks = [..._tracks];
+    nextTracks[index] = resolved;
+    final sources = <AudioSource>[
+      for (var i = 0; i < nextTracks.length; i++)
+        i == index ? resolvedSource : _sourceOrSilence(nextTracks[i]),
+    ];
+
     _tracks[index] = resolved;
     _updateQueueItemAt(index, resolved);
-    final sources = <AudioSource>[
-      for (var i = 0; i < _tracks.length; i++)
-        i == index ? resolvedSource : _sourceFor(_tracks[i]),
-    ];
     await _player.setAudioSources(
       sources,
       initialIndex: index,
       initialPosition: Duration.zero,
     );
     _updateCurrentMediaItem(index);
-    unawaited(_player.play());
+    _startPlayback();
     _prefetchUpcoming(index);
   }
 
@@ -181,7 +266,7 @@ class AudioPlayerHandler extends BaseAudioHandler
       final wasPlaying = _player.playing;
       final sources = <AudioSource>[
         for (var i = 0; i < _tracks.length; i++)
-          i == index ? source : _sourceFor(_tracks[i]),
+          i == index ? source : _sourceOrSilence(_tracks[i]),
       ];
       await _player.setAudioSources(
         sources,
@@ -189,7 +274,7 @@ class AudioPlayerHandler extends BaseAudioHandler
         initialPosition: Duration.zero,
       );
       _updateCurrentMediaItem(index);
-      if (wasPlaying) unawaited(_player.play());
+      if (wasPlaying) _startPlayback();
       _prefetchUpcoming(index);
       return;
     }
@@ -201,29 +286,60 @@ class AudioPlayerHandler extends BaseAudioHandler
   /// Убирает трек из очереди. Текущий трек удалить нельзя.
   Future<void> removeFromQueue(int index) async {
     final current = _player.currentIndex ?? -1;
-    if (index < 0 || index >= _tracks.length || index == current) return;
+    if (index < 0 ||
+        index >= _tracks.length ||
+        index >= queue.value.length ||
+        index == current) {
+      return;
+    }
 
+    // Сначала удаляем источник из just_audio: если операция не удалась,
+    // локальные списки остаются согласованными с плеером.
     final item = queue.value[index];
-    _tracks.removeAt(index);
-    await removeQueueItem(item);
-    await _player.removeAudioSourceAt(index);
+    try {
+      await _player.removeAudioSourceAt(index);
+    } catch (error) {
+      debugPrint('AudioPlayerHandler: removeFromQueue failed: $error');
+      return;
+    }
+    if (index < _tracks.length) _tracks.removeAt(index);
+    try {
+      await removeQueueItem(item);
+    } catch (_) {
+      // Метаданные очереди не критичны для воспроизведения.
+    }
   }
 
   /// Очищает очередь, оставляя только текущий трек.
   Future<void> clearQueue() async {
     final current = _player.currentIndex;
     if (current == null) return;
+
     for (var i = _tracks.length - 1; i > current; i--) {
-      final item = queue.value[i];
-      _tracks.removeAt(i);
-      await removeQueueItem(item);
-      await _player.removeAudioSourceAt(i);
+      await _removeQueueAt(i);
     }
     for (var i = current - 1; i >= 0; i--) {
-      final item = queue.value[i];
-      _tracks.removeAt(i);
+      await _removeQueueAt(i);
+    }
+  }
+
+  /// Удаляет элемент очереди по индексу, не выходя за границы списков.
+  Future<void> _removeQueueAt(int index) async {
+    if (index < 0 || index >= _tracks.length || index >= queue.value.length) {
+      return;
+    }
+    final item = queue.value[index];
+    try {
+      await _player.removeAudioSourceAt(index);
+    } catch (error) {
+      debugPrint('AudioPlayerHandler: clearQueue failed at $index: $error');
+      return;
+    }
+    if (index < _tracks.length) _tracks.removeAt(index);
+    try {
       await removeQueueItem(item);
-      await _player.removeAudioSourceAt(i);
+    } catch (_) {
+      // Метаданные очереди не критичны для воспроизведения.
     }
   }
 
@@ -231,7 +347,7 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   @override
   Future<void> play() async {
-    unawaited(_player.play());
+    _startPlayback();
   }
 
   @override
@@ -250,7 +366,7 @@ class AudioPlayerHandler extends BaseAudioHandler
       if (next == null) return;
       await _upgradeSourceAt(next, allowCurrent: true);
       await _player.seekToNext();
-      unawaited(_player.play());
+      _startPlayback();
       _prefetchUpcoming(next);
     } catch (_) {
       // на последнем треке — игнорируем
@@ -272,7 +388,7 @@ class AudioPlayerHandler extends BaseAudioHandler
         await _upgradeSourceAt(previous, allowCurrent: true);
       }
       await _player.seekToPrevious();
-      unawaited(_player.play());
+      _startPlayback();
       if (previous != null) _prefetchUpcoming(previous);
     } catch (_) {
       await _player.seek(Duration.zero);
@@ -282,10 +398,15 @@ class AudioPlayerHandler extends BaseAudioHandler
   @override
   Future<void> skipToQueueItem(int index) async {
     if (index < 0 || index >= _tracks.length) return;
-    await _upgradeSourceAt(index, allowCurrent: true);
-    await _player.seek(Duration.zero, index: index);
+    try {
+      await _upgradeSourceAt(index, allowCurrent: true);
+      await _player.seek(Duration.zero, index: index);
+    } catch (error) {
+      debugPrint('AudioPlayerHandler: skipToQueueItem($index) failed: $error');
+      return;
+    }
     _updateCurrentMediaItem(index);
-    unawaited(_player.play());
+    _startPlayback();
     _prefetchUpcoming(index);
   }
 
@@ -322,12 +443,59 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   // --- Вспомогательное -----------------------------------------------------
 
+  /// Безопасно строит источник для фоновых элементов очереди.
+  ///
+  /// Если трек почему-то стал недоступен (файл удалён, ссылка битая),
+  /// очередь не падает целиком: проблемный элемент заменяется короткой
+  /// тишиной, которую just_audio сразу перескочит.
+  AudioSource _sourceOrSilence(Track track) {
+    try {
+      return _sourceFor(track);
+    } catch (error) {
+      debugPrint('AudioPlayerHandler: no source for ${track.title}: $error');
+      return _silenceSource();
+    }
+  }
+
+  /// Пустой источник-заглушка для непроигрываемых элементов очереди.
+  AudioSource _silenceSource() {
+    // SilenceAudioSource поддерживается только на Android. На других
+    // платформах используем заведомо недоступный URI — just_audio
+    // сообщит об ошибке и перейдёт к следующему треку.
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return SilenceAudioSource(duration: const Duration(seconds: 1));
+    }
+    return AudioSource.uri(Uri.parse('about:blank'));
+  }
+
+  /// Запускает воспроизведение, не оставляя необработанных ошибок Future.
+  void _startPlayback() {
+    unawaited(
+      _player.play().catchError((Object error, StackTrace stack) {
+        debugPrint('AudioPlayerHandler: play failed: $error');
+      }),
+    );
+  }
+
+  /// Создаёт сетевой источник и проверяет, что ссылка вообще пригодна.
+  AudioSource _networkSource(String rawUrl, {Map<String, String>? headers}) {
+    final uri = Uri.tryParse(rawUrl);
+    if (uri == null ||
+        uri.host.isEmpty ||
+        (uri.scheme != 'http' && uri.scheme != 'https')) {
+      throw const TrackLoadException(
+        'Источник трека содержит некорректную ссылку.',
+      );
+    }
+    return AudioSource.uri(uri, headers: headers);
+  }
+
   AudioSource _sourceFor(Track track) {
     if (track.source == TrackSource.youtube) {
       // Готовый прямой поток (например, из FullTrackResolver) играет без
       // Invidious-прокси и стартует сразу.
       final direct = _directStreamUrl(track);
-      if (direct != null) return AudioSource.uri(Uri.parse(direct));
+      if (direct != null) return _networkSource(direct);
 
       // videoId приоритетнее streamUrl: у полной версии из ResolvedTrack
       // в streamUrl мог остаться 30-секундный URL превью. Invidious-ссылку
@@ -339,23 +507,31 @@ class AudioPlayerHandler extends BaseAudioHandler
         );
       }
       // just_audio сам поднимет локальный прокси и пробросит Range.
-      return AudioSource.uri(
-        Uri.parse(url),
-        headers: YoutubeService.streamHeaders,
-      );
+      return _networkSource(url, headers: YoutubeService.streamHeaders);
     }
 
     if (track.isAudius) {
-      return AudioSource.uri(Uri.parse(_musicRepo.streamUrlFor(track)));
+      final audiusId = track.audiusId;
+      if (audiusId == null || audiusId.isEmpty) {
+        throw const TrackLoadException(
+          'У трека нет идентификатора Audius. Выберите другой результат.',
+        );
+      }
+      return _networkSource(_musicRepo.streamUrlFor(track));
     }
 
     final streamUrl = track.streamUrl;
     if (streamUrl != null && streamUrl.isNotEmpty) {
-      return AudioSource.uri(Uri.parse(streamUrl));
+      return _networkSource(streamUrl);
     }
 
     final localPath = track.localPath;
     if (localPath != null && localPath.isNotEmpty) {
+      if (!File(localPath).existsSync()) {
+        throw const TrackLoadException(
+          'Файл трека не найден. Возможно, он был удалён.',
+        );
+      }
       return AudioSource.uri(Uri.file(localPath));
     }
 
@@ -383,13 +559,13 @@ class AudioPlayerHandler extends BaseAudioHandler
     if (track.source != TrackSource.youtube) return _sourceFor(track);
 
     final direct = _directStreamUrl(track);
-    if (direct != null) return AudioSource.uri(Uri.parse(direct));
+    if (direct != null) return _networkSource(direct);
 
     final videoId = track.externalId;
     if (videoId != null && videoId.isNotEmpty) {
       final resolved = await _youtube.playbackStreamUrl(videoId);
       if (resolved != null && resolved.isNotEmpty) {
-        return AudioSource.uri(Uri.parse(resolved));
+        return _networkSource(resolved);
       }
     }
     return _sourceFor(track);
@@ -407,9 +583,12 @@ class AudioPlayerHandler extends BaseAudioHandler
   /// Очередь не ждёт: текущий трек уже играет, а следующие источники
   /// обновляются до того, как до них дойдёт автопереход.
   Future<bool> _upgradeSourceAt(int index, {bool allowCurrent = false}) {
-    final result = _sourceReplaceQueue.then(
-      (_) => _upgradeSourceAtNow(index, allowCurrent: allowCurrent),
-    );
+    final result = _sourceReplaceQueue
+        .then((_) => _upgradeSourceAtNow(index, allowCurrent: allowCurrent))
+        .catchError((Object error, StackTrace stack) {
+          debugPrint('AudioPlayerHandler: source upgrade failed: $error');
+          return false;
+        });
     _sourceReplaceQueue = result.then<void>((_) {}, onError: (_, _) {});
     return result;
   }
@@ -433,7 +612,7 @@ class AudioPlayerHandler extends BaseAudioHandler
     // Пока резолвили URL, очередь могли изменить.
     if (index >= _tracks.length || _tracks[index].id != track.id) return false;
 
-    final source = AudioSource.uri(Uri.parse(url));
+    final source = _networkSource(url);
     final current = _player.currentIndex;
 
     if (index == current) {
@@ -441,7 +620,7 @@ class AudioPlayerHandler extends BaseAudioHandler
       final wasPlaying = _player.playing;
       final sources = <AudioSource>[
         for (var i = 0; i < _tracks.length; i++)
-          i == index ? source : _sourceFor(_tracks[i]),
+          i == index ? source : _sourceOrSilence(_tracks[i]),
       ];
       await _player.setAudioSources(
         sources,
@@ -449,7 +628,7 @@ class AudioPlayerHandler extends BaseAudioHandler
         initialPosition: Duration.zero,
       );
       _updateCurrentMediaItem(index);
-      if (wasPlaying) unawaited(_player.play());
+      if (wasPlaying) _startPlayback();
       return true;
     }
 
@@ -470,6 +649,7 @@ class AudioPlayerHandler extends BaseAudioHandler
     final indices = _upcomingIndices(currentIndex, 3);
     final ids = <String>[];
     for (final index in indices) {
+      if (index < 0 || index >= _tracks.length) continue;
       final track = _tracks[index];
       if (track.source != TrackSource.youtube) continue;
       if (_directStreamUrl(track) != null) continue;
@@ -506,6 +686,7 @@ class AudioPlayerHandler extends BaseAudioHandler
     }
 
     final order = _player.effectiveIndices;
+    if (order.isEmpty) return result;
     final position = order.indexOf(currentIndex);
     if (position < 0) return result;
 

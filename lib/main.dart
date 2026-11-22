@@ -27,6 +27,27 @@ import 'services/youtube_service.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Ошибки Flutter/асинхронного кода не должны превращаться в вылет
+  // приложения: логируем их и продолжаем работу. Это особенно важно для
+  // сетевых ответов и фоновых задач, которые приходят уже после смены
+  // экрана или закрытия нижнего листа.
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+  };
+  WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
+    debugPrint('Verde: uncaught error: $error\n$stack');
+    return true;
+  };
+
+  try {
+    await _runApp();
+  } catch (error, stack) {
+    debugPrint('Verde: startup failed: $error\n$stack');
+    runApp(const _StartupErrorApp());
+  }
+}
+
+Future<void> _runApp() async {
   // 1. Локальное хранилище
   final prefs = await SharedPreferences.getInstance();
 
@@ -53,21 +74,27 @@ Future<void> main() async {
   final downloadProvider = DownloadProvider(mp3DownloadService);
   final lyricsService = LyricsService();
 
-  // 3. Разрешение на постоянные уведомления (Android 13+) — фон-плеер?
-  await _requestNotificationPermission();
-
-  // 4. Фоновый аудио-сервис (уведомление, экран блокировки, гарнитура)
-  final audioHandler = await AudioService.init(
-    builder: () => AudioPlayerHandler(musicRepo, youtubeService),
-    config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.verde.music.playback',
-      androidNotificationChannelName: 'Воспроизведение Verde',
-      androidNotificationChannelDescription:
-          'Управление музыкой в фоне и с экрана блокировки',
-      androidNotificationOngoing: true,
-      androidStopForegroundOnPause: true,
-    ),
-  );
+  // 3. Фоновый аудио-сервис (уведомление, экран блокировки, гарнитура).
+  // Если сервис не поднялся, всё равно запускаем обычный just_audio:
+  // музыка будет играть, а уведомление — нет. Это лучше, чем пустой экран
+  // при старте.
+  AudioPlayerHandler audioHandler;
+  try {
+    audioHandler = await AudioService.init<AudioPlayerHandler>(
+      builder: () => AudioPlayerHandler(musicRepo, youtubeService),
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.verde.music.playback',
+        androidNotificationChannelName: 'Воспроизведение Verde',
+        androidNotificationChannelDescription:
+            'Управление музыкой в фоне и с экрана блокировки',
+        androidNotificationOngoing: true,
+        androidStopForegroundOnPause: true,
+      ),
+    );
+  } catch (error, stack) {
+    debugPrint('Verde: audio_service init failed: $error\n$stack');
+    audioHandler = AudioPlayerHandler(musicRepo, youtubeService);
+  }
 
   runApp(
     MultiProvider(
@@ -116,6 +143,53 @@ Future<void> main() async {
       child: const VerdeApp(),
     ),
   );
+
+  // Разрешение запрашиваем уже после первого кадра: диалог Android 13+
+  // не должен задерживать запуск интерфейса.
+  unawaited(_requestNotificationPermission());
+}
+
+/// Запасной экран, если инициализация приложения не удалась.
+///
+/// Пользователь видит понятное сообщение и может перезапустить приложение,
+/// вместо мгновенного закрытия процесса.
+class _StartupErrorApp extends StatelessWidget {
+  const _StartupErrorApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData.dark(useMaterial3: true),
+      home: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, size: 56),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Не удалось запустить Verde',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Перезапустите приложение. Если ошибка повторяется — '
+                    'очистите данные Verde в настройках Android.',
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Android 13+ требует runtime-разрешение на уведомления; без него

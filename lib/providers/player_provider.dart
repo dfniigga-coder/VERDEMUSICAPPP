@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../core/errors/app_exceptions.dart';
 import '../data/models/track.dart';
 import '../services/audio_player_handler.dart';
 import '../services/recommendation_service.dart';
@@ -24,19 +25,21 @@ class PlayerProvider extends ChangeNotifier {
   }) : _recommendations = recommendations,
        _youtube = youtube,
        _downloads = downloads {
-    _handler.playbackState.map((s) => s.playing).distinct().listen((playing) {
+    _bind(_handler.playbackState.map((state) => state.playing).distinct(), (
+      playing,
+    ) {
       _playing = playing;
-      notifyListeners();
+      _notify();
     });
 
-    _handler.player.processingStateStream.listen((state) {
+    _bind(_handler.player.processingStateStream, (state) {
       _processing = state;
-      notifyListeners();
+      _notify();
     });
 
-    _handler.player.currentIndexStream.listen((index) {
+    _bind(_handler.player.currentIndexStream, (index) {
       _currentIndex = index;
-      notifyListeners();
+      _notify();
 
       final track = _handler.trackAt(index ?? -1);
       final recommendations = _recommendations;
@@ -45,39 +48,46 @@ class PlayerProvider extends ChangeNotifier {
       }
     });
 
-    _handler.player.shuffleModeEnabledStream.listen((enabled) {
+    _bind(_handler.player.shuffleModeEnabledStream, (enabled) {
       _shuffle = enabled;
-      notifyListeners();
+      _notify();
     });
 
-    _handler.player.loopModeStream.listen((mode) {
+    _bind(_handler.player.loopModeStream, (mode) {
       _loopMode = mode;
-      notifyListeners();
+      _notify();
     });
 
-    _handler.player.volumeStream.listen((volume) {
+    _bind(_handler.player.volumeStream, (volume) {
       _volume = volume;
-      notifyListeners();
+      _notify();
     });
 
-    _handler.player.positionStream.listen((position) {
-      _position = position;
-      notifyListeners();
-    });
-
-    _handler.player.durationStream.listen((duration) {
-      _duration = duration;
-      notifyListeners();
-    });
+    // Позиция и длительность обновляются несколько раз в секунду.
+    // Их НЕ прогоняем через notifyListeners: иначе каждый тик перестраивал
+    // бы весь список треков и очередь. Виджеты прогресса слушают
+    // positionStream/durationStream напрямую (см. MiniPlayerBar).
 
     // Ошибка загрузки трека: если можно, just_audio автоматически перейдёт
     // к следующему (maxSkipsOnError), о чём сообщаем пользователю.
-    _handler.player.errorStream.listen((_) {
+    _bind(_handler.player.errorStream, (_) {
+      if (_disposed) return;
       final more = _handler.player.hasNext;
       errorNotifier.value = more
           ? 'Трек не загрузился, переходим к следующему…'
           : 'Трек не загрузился. Проверьте соединение и попробуйте ещё раз.';
     });
+  }
+
+  final List<StreamSubscription<dynamic>> _subscriptions = [];
+  bool _disposed = false;
+
+  void _bind<T>(Stream<T> stream, void Function(T value) onData) {
+    _subscriptions.add(stream.listen(onData));
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
   }
 
   final AudioPlayerHandler _handler;
@@ -91,8 +101,6 @@ class PlayerProvider extends ChangeNotifier {
   bool _shuffle = false;
   LoopMode _loopMode = LoopMode.off;
   double _volume = 1.0;
-  Duration _position = Duration.zero;
-  Duration? _duration;
 
   /// Номер последнего запуска очереди. Нужен, чтобы запоздавший апгрейд
   /// превью не подменил трек уже другой очереди.
@@ -129,9 +137,6 @@ class PlayerProvider extends ChangeNotifier {
   bool get isShuffleEnabled => _shuffle;
 
   bool get isRepeatAll => _loopMode == LoopMode.all;
-
-  Duration get position => _position;
-  Duration? get duration => _duration;
 
   bool get isRepeatOne => _loopMode == LoopMode.one;
 
@@ -192,6 +197,10 @@ class PlayerProvider extends ChangeNotifier {
           !playableStartTrack.isLocal) {
         _upgradePreview(startTrack, request);
       }
+    } on AppException catch (error) {
+      if (request == _playRequest) {
+        errorNotifier.value = error.message;
+      }
     } catch (e) {
       if (request == _playRequest) {
         errorNotifier.value =
@@ -244,6 +253,9 @@ class PlayerProvider extends ChangeNotifier {
       }
       await _handler.playResolvedTrack(original, resolved);
       return true;
+    } on AppException catch (error) {
+      errorNotifier.value = error.message;
+      return false;
     } catch (e) {
       errorNotifier.value = 'Не удалось включить полную версию.';
       return false;
@@ -426,6 +438,11 @@ class PlayerProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    for (final subscription in _subscriptions) {
+      unawaited(subscription.cancel());
+    }
+    _subscriptions.clear();
     errorNotifier.dispose();
     super.dispose();
   }

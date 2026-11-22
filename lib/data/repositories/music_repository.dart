@@ -49,7 +49,18 @@ class MusicRepository {
   }
 
   /// Ссылка на поток audius-трека (используется аудио-хендлером).
-  String streamUrlFor(Track track) => _api.streamUrlFor(track.audiusId!);
+  ///
+  /// Бросает [TrackLoadException] вместо `null`-проверки: трек без
+  /// audiusId не должен приводить к `TypeError` в глубине плеера.
+  String streamUrlFor(Track track) {
+    final audiusId = track.audiusId;
+    if (audiusId == null || audiusId.isEmpty) {
+      throw const TrackLoadException(
+        'У трека нет идентификатора Audius. Выберите другой результат.',
+      );
+    }
+    return _api.streamUrlFor(audiusId);
+  }
 
   /// Загружает главную. Запросы идут параллельно; при ошибке сети
   /// возвращает кэш с пометкой [HomeData.isCached], иначе бросает AppException.

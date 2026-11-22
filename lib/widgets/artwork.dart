@@ -42,12 +42,19 @@ class ArtworkView extends StatelessWidget {
 
     if (url == null || url!.isEmpty) return placeholder;
 
+    // Ограничиваем декодируемое разрешение: 4K-обложка для иконки 48×48
+    // занимает мегабайты памяти и легко приводит к OOM в длинных списках.
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final cacheSize = (size * dpr).clamp(64.0, 1024.0).round();
+
     Widget image({required BoxFit fit, Color? tint, double? blurSigma}) {
       final child = CachedNetworkImage(
         imageUrl: url!,
         width: size,
         height: size,
         fit: fit,
+        memCacheWidth: cacheSize,
+        memCacheHeight: cacheSize,
         fadeInDuration: const Duration(milliseconds: 200),
         placeholder: (context, url) => placeholder,
         errorWidget: (context, url, error) => placeholder,
@@ -125,6 +132,9 @@ class LocalArtworkView extends StatelessWidget {
             ),
           );
         }
+        final cacheSize = (size * MediaQuery.devicePixelRatioOf(context))
+            .clamp(64.0, 1024.0)
+            .round();
         return ClipRRect(
           borderRadius: borderRadius,
           child: Image.memory(
@@ -132,6 +142,8 @@ class LocalArtworkView extends StatelessWidget {
             width: size,
             height: size,
             fit: BoxFit.cover,
+            cacheWidth: cacheSize,
+            cacheHeight: cacheSize,
             gaplessPlayback: true,
           ),
         );

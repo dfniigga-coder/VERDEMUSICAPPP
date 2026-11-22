@@ -132,12 +132,25 @@ class YoutubeService {
     'https://inv.nadeko.net',
   ];
 
+  /// Запасные клиенты YouTube.
+  ///
+  /// VISIONOS обычно отдаёт лучший поток, но часть роликов доступна только
+  /// другим клиентам (например, без возрастных ограничений или без
+  /// отдельных аудио-дорожек). Клиенты перебираются по одному: пакет при
+  /// передаче списка опрашивает их все подряд и только потом возвращает
+  /// манифест, что заметно замедляет старт воспроизведения.
+  static final List<YoutubeApiClient> _fallbackClients = [
+    YoutubeApiClient.androidVr,
+    YoutubeApiClient.androidSdkless,
+    YoutubeApiClient.ios,
+  ];
+
   final YoutubeExplode _youtube;
   final http.Client _http;
   final bool _ownsHttpClient;
 
   final Map<String, _CachedAudio> _audioCache = {};
-  final Map<String, Future<AudioOnlyStreamInfo?>> _audioInFlight = {};
+  final Map<String, Future<AudioStreamInfo?>> _audioInFlight = {};
   final Map<String, _CachedPlaybackUrl> _playbackUrlCache = {};
   final Map<String, Future<String?>> _playbackUrlInFlight = {};
 
@@ -409,6 +422,31 @@ class YoutubeService {
           ytClients: [_visionOsClient],
         )
         .timeout(_manifestTimeout);
+  }
+
+  /// Манифест через запасные клиенты YouTube.
+  ///
+  /// Нужен для роликов, которые VISIONOS не отдаёт: некоторые из них
+  /// доступны только через Android VR / SDK-less / iOS. Возвращает первый
+  /// манифест, в котором вообще есть аудио (включая muxed).
+  Future<StreamManifest> _fallbackManifest(String videoId) async {
+    Object? lastError;
+    for (final client in _fallbackClients) {
+      try {
+        final manifest = await _youtube.videos.streams
+            .getManifest(videoId, requireWatchPage: false, ytClients: [client])
+            .timeout(_manifestTimeout);
+        if (manifest.audio.isNotEmpty) return manifest;
+      } catch (error) {
+        lastError = error;
+        debugPrint(
+          'YoutubeService: fallback client manifest failed for $videoId: '
+          '$error',
+        );
+      }
+    }
+    throw lastError ??
+        const YoutubeException('Не удалось получить аудио с YouTube.');
   }
 
   /// Прогревает прямые ссылки для следующих треков очереди.
@@ -727,7 +765,7 @@ class YoutubeService {
   /// VISIONOS-ссылки отдают весь файл без 64-килобайтных ограничений,
   /// поэтому не нужно делать десятки последовательных запросов.
   Future<void> _downloadDirect(
-    AudioOnlyStreamInfo info,
+    AudioStreamInfo info,
     File file, {
     void Function(double? progress)? onProgress,
   }) async {
@@ -825,7 +863,7 @@ class YoutubeService {
     }
   }
 
-  Future<AudioOnlyStreamInfo?> _streamInfo(
+  Future<AudioStreamInfo?> _streamInfo(
     String videoId, {
     required bool preferMp4,
     bool forceRefresh = false,
@@ -836,9 +874,7 @@ class YoutubeService {
     final key = _cacheKey(videoId, preferMp4: preferMp4);
     if (!forceRefresh) {
       final cached = _audioCache[key];
-      if (cached != null &&
-          !cached.isExpired &&
-          (fast || cached.reliable)) {
+      if (cached != null && !cached.isExpired && (fast || cached.reliable)) {
         return Future.value(cached.info);
       }
     } else {
@@ -852,7 +888,7 @@ class YoutubeService {
     if (running != null) return running;
 
     final future = _loadStreamInfo(videoId, preferMp4: preferMp4, fast: fast)
-        .then<AudioOnlyStreamInfo?>((result) {
+        .then<AudioStreamInfo?>((result) {
           final cached = _CachedAudio(
             result.info,
             DateTime.now().add(_audioCacheTtl),
@@ -890,21 +926,22 @@ class YoutubeService {
     bool fast = true,
   }) {
     if (!fast) {
-      return _visionOsManifest(videoId).then(
-        (manifest) => (
-          manifest: manifest,
-          reliable: manifest.audioOnly.isNotEmpty,
-        ),
-        onError: (Object error, StackTrace stack) async {
-          debugPrint(
-            'YoutubeService: VISIONOS manifest failed for $videoId: $error',
-          );
-          final fallback = await _youtube.videos.streams
-              .getManifest(videoId, requireWatchPage: false)
-              .timeout(_manifestTimeout);
-          return (manifest: fallback, reliable: false);
-        },
-      );
+      return _visionOsManifest(videoId)
+          .then((manifest) {
+            if (manifest.audio.isEmpty) {
+              throw const YoutubeException(
+                'VISIONOS-манифест не содержит аудиодорожек.',
+              );
+            }
+            return (manifest: manifest, reliable: true);
+          })
+          .catchError((Object error, StackTrace stack) async {
+            debugPrint(
+              'YoutubeService: VISIONOS manifest failed for $videoId: $error',
+            );
+            final fallback = await _fallbackManifest(videoId);
+            return (manifest: fallback, reliable: false);
+          });
     }
 
     final completer = Completer<({StreamManifest manifest, bool reliable})>();
@@ -926,8 +963,13 @@ class YoutubeService {
       future
           .then<void>(
             (manifest) {
-              if (!completer.isCompleted && manifest.audioOnly.isNotEmpty) {
+              if (completer.isCompleted) return;
+              if (manifest.audio.isNotEmpty) {
                 completer.complete((manifest: manifest, reliable: reliable));
+              } else {
+                lastError = const YoutubeException(
+                  'Манифест не содержит аудиодорожек.',
+                );
               }
             },
             onError: (Object error, StackTrace stack) {
@@ -961,9 +1003,7 @@ class YoutubeService {
       fallbackStarted = true;
       if (!completer.isCompleted) {
         handle(
-          _youtube.videos.streams
-              .getManifest(videoId, requireWatchPage: false)
-              .timeout(_manifestTimeout),
+          _fallbackManifest(videoId).timeout(_manifestTimeout),
           reliable: false,
         );
       }
@@ -973,16 +1013,25 @@ class YoutubeService {
     return completer.future;
   }
 
-  Future<({AudioOnlyStreamInfo info, bool reliable})> _loadStreamInfo(
+  Future<({AudioStreamInfo info, bool reliable})> _loadStreamInfo(
     String videoId, {
     required bool preferMp4,
     required bool fast,
   }) async {
     final loaded = await _loadManifest(videoId, fast: fast);
 
-    final candidates = loaded.manifest.audioOnly
+    // Сначала отдельные аудиодорожки: меньше трафика и чистый звук.
+    // Если их нет (частая ситуация у официальных клипов), берём muxed-
+    // поток: just_audio проигрывает из него только аудио.
+    final audioOnly = loaded.manifest.audioOnly
         .where((stream) => stream.url.toString().isNotEmpty)
         .toList(growable: false);
+    final List<AudioStreamInfo> candidates = audioOnly.isNotEmpty
+        ? audioOnly
+        : loaded.manifest.muxed
+              .where((stream) => stream.url.toString().isNotEmpty)
+              .toList(growable: false);
+
     if (candidates.isEmpty) {
       throw const YoutubeException('У видео нет доступных аудиодорожек.');
     }
@@ -1180,7 +1229,7 @@ class YoutubeException implements Exception {
 }
 
 class _CachedAudio {
-  final AudioOnlyStreamInfo info;
+  final AudioStreamInfo info;
   final DateTime expiresAt;
 
   /// `true`, если URL получен из полного VISIONOS-манифеста. Такой поток
