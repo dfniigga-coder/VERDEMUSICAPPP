@@ -6,6 +6,9 @@ on:
       - '**'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
     name: Release APK
@@ -36,9 +39,14 @@ jobs:
       - name: Build release APK
         run: flutter build apk --release
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: verde-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
+      - name: Publish APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view latest-apk >/dev/null 2>&1 \
+            || gh release create latest-apk \
+                 --target "$GITHUB_SHA" \
+                 --title "Verde — последняя сборка" \
+                 --notes "APK собран автоматически из коммита $GITHUB_SHA." \
+                 --latest
+          gh release upload latest-apk build/app/outputs/flutter-apk/app-release.apk --clobber
