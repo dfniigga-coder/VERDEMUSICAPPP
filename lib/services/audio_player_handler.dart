@@ -150,15 +150,17 @@ class AudioPlayerHandler extends BaseAudioHandler
 
     _updateCurrentMediaItem(initialIndex);
     _startPlayback();
-    _prefetchUpcoming(initialIndex);
 
-    // Если стартовый YouTube-трек пришлось запустить через Invidious,
-    // прямой поток уже резолвится в фоне. Подменяем источник, как только
-    // он появится, сохраняя позицию.
+    // Если стартовый YouTube-трек пришлось запустить через быстрый, но
+    // неполный поток, подменяем его надёжным в первую очередь — до
+    // прогрева следующих треков, иначе SDK-less-ссылка может закончиться
+    // (~1 МБ) раньше, чем дойдёт очередь до апгрейда.
     final startTrack = _tracks[initialIndex];
     if (!startIsReliable && startTrack.source == TrackSource.youtube) {
       unawaited(_upgradeSourceAt(initialIndex, allowCurrent: true));
     }
+
+    _prefetchUpcoming(initialIndex);
   }
 
   /// Добавляет трек в конец очереди (или запускает, если очередь пуста).
@@ -383,15 +385,18 @@ class AudioPlayerHandler extends BaseAudioHandler
       if (next == null) return;
       // Не задерживаем переход ожиданием манифеста: прямой источник
       // подменится в фоне, а Invidious-заглушка уже стоит в очереди.
-      await _upgradeSourceAt(
+      // Готовим надёжный источник до перехода, чтобы он не подменялся
+      // повторно во время воспроизведения.
+      final prepared = await _upgradeSourceAt(
         next,
-        allowCurrent: true,
         resolveTimeout: const Duration(milliseconds: 1500),
       );
       await _player.seekToNext();
       _startPlayback();
+      if (!prepared) {
+        unawaited(_upgradeSourceAt(next, allowCurrent: true));
+      }
       _prefetchUpcoming(next);
-      unawaited(_upgradeSourceAt(next, allowCurrent: true));
     } catch (_) {
       // на последнем треке — игнорируем
     }
@@ -408,18 +413,20 @@ class AudioPlayerHandler extends BaseAudioHandler
     }
     try {
       final previous = _player.previousIndex;
+      var prepared = false;
       if (previous != null) {
-        await _upgradeSourceAt(
+        prepared = await _upgradeSourceAt(
           previous,
-          allowCurrent: true,
           resolveTimeout: const Duration(milliseconds: 1500),
         );
       }
       await _player.seekToPrevious();
       _startPlayback();
       if (previous != null) {
+        if (!prepared) {
+          unawaited(_upgradeSourceAt(previous, allowCurrent: true));
+        }
         _prefetchUpcoming(previous);
-        unawaited(_upgradeSourceAt(previous, allowCurrent: true));
       }
     } catch (_) {
       await _player.seek(Duration.zero);
@@ -429,12 +436,12 @@ class AudioPlayerHandler extends BaseAudioHandler
   @override
   Future<void> skipToQueueItem(int index) async {
     if (index < 0 || index >= _tracks.length) return;
+    final prepared = await _upgradeSourceAt(
+      index,
+      allowCurrent: true,
+      resolveTimeout: const Duration(milliseconds: 1800),
+    );
     try {
-      await _upgradeSourceAt(
-        index,
-        allowCurrent: true,
-        resolveTimeout: const Duration(milliseconds: 1800),
-      );
       await _player.seek(Duration.zero, index: index);
     } catch (error) {
       debugPrint('AudioPlayerHandler: skipToQueueItem($index) failed: $error');
@@ -442,8 +449,10 @@ class AudioPlayerHandler extends BaseAudioHandler
     }
     _updateCurrentMediaItem(index);
     _startPlayback();
+    if (!prepared) {
+      unawaited(_upgradeSourceAt(index, allowCurrent: true));
+    }
     _prefetchUpcoming(index);
-    unawaited(_upgradeSourceAt(index, allowCurrent: true));
   }
 
   @override
@@ -634,6 +643,11 @@ class AudioPlayerHandler extends BaseAudioHandler
   ///
   /// Очередь не ждёт: текущий трек уже играет, а следующие источники
   /// обновляются до того, как до них дойдёт автопереход.
+  ///
+  /// Возвращает `true`, только если в очередь попал надёжный поток на
+  /// весь файл. Быстрый SDK-less-URL тоже подходит для старта, но его
+  /// придётся заменить позже, поэтому вызывающая сторона должна знать
+  /// разницу.
   Future<bool> _upgradeSourceAt(
     int index, {
     bool allowCurrent = false,
@@ -674,6 +688,7 @@ class AudioPlayerHandler extends BaseAudioHandler
       timeout: resolveTimeout,
     );
     if (url == null || url.isEmpty) return false;
+    final reliable = _youtube.isReliablePlayback(videoId);
 
     // Пока резолвили URL, очередь могли изменить.
     if (index >= _tracks.length || _tracks[index].id != track.id) return false;
@@ -713,13 +728,13 @@ class AudioPlayerHandler extends BaseAudioHandler
       );
       _updateCurrentMediaItem(index);
       if (wasPlaying) _startPlayback();
-      return true;
+      return reliable;
     }
 
     try {
       await _player.removeAudioSourceAt(index);
       await _player.insertAudioSource(index, source);
-      return true;
+      return reliable;
     } catch (error) {
       debugPrint('AudioPlayerHandler: source upgrade failed: $error');
       return false;
