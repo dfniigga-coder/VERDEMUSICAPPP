@@ -234,7 +234,7 @@ class _LinkDownloadSheetState extends State<LinkDownloadSheet> {
             const SizedBox(height: 6),
             const Text(
               'Скопируйте ссылку на трек в YouTube Music и вставьте её сюда — '
-              'приложение скачает аудио и конвертирует его в MP3.',
+              'приложение скачает аудио в MP3 и сохранит лирику.',
               style: TextStyle(
                 color: AppColors.textDim,
                 fontSize: 12,
@@ -306,11 +306,11 @@ class _LinkDownloadSheetState extends State<LinkDownloadSheet> {
               FilledButton.icon(
                 onPressed: () => Navigator.of(context).pop(track),
                 icon: const Icon(Icons.download_for_offline_outlined),
-                label: const Text('Скачать MP3'),
+                label: const Text('Скачать MP3 + лирику'),
               ),
               const SizedBox(height: 8),
               const Text(
-                'MP3, 192 кбит/с · файл сохранится в Music/Verde',
+                'MP3, 192 кбит/с + .lrc · сохранится в Music/Verde',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppColors.textDim, fontSize: 11),
               ),

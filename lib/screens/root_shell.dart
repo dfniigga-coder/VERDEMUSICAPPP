@@ -9,18 +9,18 @@ import '../providers/download_provider.dart';
 import '../providers/player_provider.dart';
 import '../services/incoming_link_service.dart';
 import '../services/youtube_link.dart';
-import 'home/home_screen.dart';
-import 'library/library_screen.dart';
-import 'search/search_screen.dart';
 import '../widgets/common.dart';
 import '../widgets/download_sheet.dart';
 import '../widgets/glass_panel.dart';
 import '../widgets/link_download_sheet.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/pressable_scale.dart';
+import 'home/home_screen.dart';
+import 'library/library_screen.dart';
+import 'search/search_screen.dart';
 
-/// Каркас: 3 таба (IndexedStack сохраняет состояние) и плавающая
-/// нижняя навигация. Мини-плеер и прогресс скачивания живут над ней.
+/// Каркас приложения: 3 таба (IndexedStack сохраняет состояние) и парящая
+/// стеклянная капсула навигации в стиле Apple Music iOS 18.
 class RootShell extends StatefulWidget {
   const RootShell({super.key});
 
@@ -40,14 +40,11 @@ class _RootShellState extends State<RootShell> {
   @override
   void initState() {
     super.initState();
-    // Показываем снекбары об ошибках воспроизведения в любом табе.
     _playerRef = context.read<PlayerProvider>();
     _playerRef!.errorNotifier.addListener(_showPlayError);
-    // И о завершении скачивания — тоже из любого таба.
     _downloadsRef = context.read<DownloadProvider>();
     _downloadsRef?.notice.addListener(_showDownloadNotice);
 
-    // Ссылки из «Поделиться» YouTube Music и переходов по YouTube-ссылкам.
     _incomingLinkSubscription = _incomingLinks.links.listen(
       _handleIncomingLink,
     );
@@ -69,9 +66,6 @@ class _RootShellState extends State<RootShell> {
     if (link != null && mounted) _handleIncomingLink(link);
   }
 
-  /// Поделились ссылкой YouTube Music → сразу проверяем её и запускаем
-  /// скачивание в MP3. Для плейлистов и мусорного текста показываем
-  /// подсказку и ничего не скачиваем.
   void _handleIncomingLink(String raw) {
     if (!mounted || _handlingIncomingLink) return;
 
@@ -118,7 +112,7 @@ class _RootShellState extends State<RootShell> {
     final player = _playerRef;
     final message = player?.errorNotifier.value;
     if (message == null) return;
-    player!.errorNotifier.value = null; // показать один раз
+    player!.errorNotifier.value = null;
     if (!mounted) return;
     showAppSnackBar(context, message, isError: true);
   }
@@ -182,42 +176,47 @@ class _RootShellState extends State<RootShell> {
   }
 }
 
-/// Плавающая навигация-капсула с blur и зелёной пилюлей активного таба.
+/// Парящая стеклянная навигация с изумрудной пилюлей активного таба.
 class _FloatingNav extends StatelessWidget {
   final int selectedIndex;
-
   final ValueChanged<int> onSelect;
 
   const _FloatingNav({required this.selectedIndex, required this.onSelect});
 
   @override
   Widget build(BuildContext context) {
-    return GlassPanel(
-      blur: 22,
-      color: AppColors.surfaceRaised.withValues(alpha: 0.9),
-      borderRadius: AppRadii.xlAll,
-      padding: const EdgeInsets.all(6),
-      child: Row(
-        children: [
-          _NavItem(
-            icon: Icons.home_rounded,
-            label: 'Главная',
-            selected: selectedIndex == 0,
-            onTap: () => onSelect(0),
-          ),
-          _NavItem(
-            icon: Icons.search_rounded,
-            label: 'Поиск',
-            selected: selectedIndex == 1,
-            onTap: () => onSelect(1),
-          ),
-          _NavItem(
-            icon: Icons.library_music_rounded,
-            label: 'Библиотека',
-            selected: selectedIndex == 2,
-            onTap: () => onSelect(2),
-          ),
-        ],
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: AppRadii.xlAll,
+        boxShadow: AppShadows.floatingBar,
+      ),
+      child: GlassPanel(
+        blur: 24,
+        color: AppColors.surfaceRaised.withValues(alpha: 0.86),
+        borderRadius: AppRadii.xlAll,
+        padding: const EdgeInsets.all(6),
+        child: Row(
+          children: [
+            _NavItem(
+              icon: Icons.home_rounded,
+              label: 'Главная',
+              selected: selectedIndex == 0,
+              onTap: () => onSelect(0),
+            ),
+            _NavItem(
+              icon: Icons.search_rounded,
+              label: 'Поиск',
+              selected: selectedIndex == 1,
+              onTap: () => onSelect(1),
+            ),
+            _NavItem(
+              icon: Icons.library_music_rounded,
+              label: 'Медиатека',
+              selected: selectedIndex == 2,
+              onTap: () => onSelect(2),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -225,11 +224,8 @@ class _FloatingNav extends StatelessWidget {
 
 class _NavItem extends StatelessWidget {
   final IconData icon;
-
   final String label;
-
   final bool selected;
-
   final VoidCallback onTap;
 
   const _NavItem({
@@ -253,10 +249,22 @@ class _NavItem extends StatelessWidget {
               curve: Curves.easeOutCubic,
               height: 48,
               decoration: BoxDecoration(
-                color: selected
-                    ? AppColors.accentSoft(0.16)
-                    : Colors.transparent,
+                gradient: selected
+                    ? LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          AppColors.accentSoft(0.24),
+                          AppColors.accentDeep.withValues(alpha: 0.14),
+                        ],
+                      )
+                    : null,
                 borderRadius: BorderRadius.circular(AppRadii.lg),
+                border: selected
+                    ? Border.all(
+                        color: AppColors.accentBright.withValues(alpha: 0.25),
+                      )
+                    : null,
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -276,8 +284,9 @@ class _NavItem extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.1,
                           color: AppColors.accentBright,
                         ),
                       ),

@@ -178,6 +178,14 @@ class _Status extends StatelessWidget {
   Widget build(BuildContext context) {
     if (stage == DownloadStage.done) {
       final publicPath = result?.publicPath;
+      final hasLyrics = result?.hasLyrics ?? false;
+      final hasSynced = result?.hasSyncedLyrics ?? false;
+      final lyricsLabel = hasLyrics
+          ? (hasSynced
+              ? 'MP3, 192 кбит/с · Синхронная лирика (.lrc + теги)'
+              : 'MP3, 192 кбит/с · Лирика сохранена (.lrc + теги)')
+          : 'MP3, 192 кбит/с · Лирика не найдена';
+
       return Column(
         children: [
           const Icon(
@@ -198,10 +206,15 @@ class _Status extends StatelessWidget {
             textAlign: TextAlign.center,
             style: const TextStyle(color: AppColors.textDim, fontSize: 12),
           ),
-          const SizedBox(height: 4),
-          const Text(
-            'MP3, 192 кбит/с',
-            style: TextStyle(color: AppColors.textDim, fontSize: 11),
+          const SizedBox(height: 6),
+          Text(
+            lyricsLabel,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: hasLyrics ? AppColors.accentBright : AppColors.textDim,
+              fontSize: 11.5,
+              fontWeight: hasLyrics ? FontWeight.w600 : FontWeight.w400,
+            ),
           ),
         ],
       );

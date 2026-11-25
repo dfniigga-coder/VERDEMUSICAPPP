@@ -23,6 +23,7 @@ class _LocalTracksScreenState extends State<LocalTracksScreen> {
   bool _loading = true;
   bool _permissionDenied = false;
   List<Track> _tracks = const [];
+  String _filter = '';
 
   @override
   void initState() {
@@ -58,7 +59,16 @@ class _LocalTracksScreenState extends State<LocalTracksScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Мои треки')),
+      appBar: AppBar(
+        title: const Text('Мои треки'),
+        actions: [
+          IconButton(
+            onPressed: () => _load(),
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Обновить список',
+          ),
+        ],
+      ),
       body: _buildBody(context),
     );
   }
@@ -74,29 +84,53 @@ class _LocalTracksScreenState extends State<LocalTracksScreen> {
       return const EmptyState(
         icon: Icons.music_off_rounded,
         title: 'Пока нет треков',
-        subtitle: 'Добавьте файл или ссылку в Библиотеке — они появятся здесь.',
+        subtitle:
+            'Добавьте файл или ссылку в Медиатеке — они появятся здесь.',
       );
     }
 
+    final q = _filter.trim().toLowerCase();
+    final visible = q.isEmpty
+        ? _tracks
+        : _tracks
+              .where(
+                (t) =>
+                    t.title.toLowerCase().contains(q) ||
+                    t.artist.toLowerCase().contains(q),
+              )
+              .toList(growable: false);
+    final showSearch = _tracks.length >= 6;
+
     final list = ListView.builder(
       padding: const EdgeInsets.fromLTRB(8, 4, 8, AppSpacing.pageBottom),
-      itemCount: _tracks.length + 1,
+      itemCount: visible.length + (showSearch ? 2 : 1),
       itemBuilder: (context, index) {
         if (index == 0) {
-          return _Header(tracks: _tracks, onRefresh: () => _load());
+          return _Header(tracks: _tracks);
         }
-        final track = _tracks[index - 1];
+        if (showSearch && index == 1) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+            child: TextField(
+              onChanged: (v) => setState(() => _filter = v),
+              decoration: const InputDecoration(
+                hintText: 'Поиск по вашим трекам…',
+                prefixIcon: Icon(Icons.search_rounded, size: 20),
+              ),
+            ),
+          );
+        }
+        final trackIndex = index - (showSearch ? 2 : 1);
+        final track = visible[trackIndex];
         return TrackTile(
           track: track,
           onTap: () {
             context.read<PlayerProvider>().playTracks(
-              _tracks,
-              startIndex: index - 1,
+              visible,
+              startIndex: trackIndex,
             );
           },
-          onLongPress: () {
-            showTrackMenu(context, track: track);
-          },
+          onLongPress: () => showTrackMenu(context, track: track),
           trailing: LikeButton(track: track),
         );
       },
@@ -162,90 +196,98 @@ class _LocalTracksScreenState extends State<LocalTracksScreen> {
 class _Header extends StatelessWidget {
   final List<Track> tracks;
 
-  final VoidCallback onRefresh;
+  const _Header({required this.tracks});
 
-  const _Header({required this.tracks, required this.onRefresh});
+  String _durationSummary() {
+    var sec = 0;
+    for (final t in tracks) {
+      sec += t.durationSec ?? 0;
+    }
+    if (sec <= 0) return trackCountLabel(tracks.length);
+    final mins = (sec / 60).round();
+    return '${trackCountLabel(tracks.length)} · ~$mins мин';
+  }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 14),
       child: AppCard(
-        gradient: LinearGradient(
+        gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFF2C4C7A).withValues(alpha: 0.75),
-            AppColors.surfaceRaised,
-          ],
+          colors: [Color(0xFF1F426B), AppColors.surfaceRaised],
         ),
         borderRadius: AppRadii.xlAll,
-        padding: const EdgeInsets.all(16),
-        child: Row(
+        padding: const EdgeInsets.all(18),
+        child: Column(
           children: [
             Container(
-              width: 84,
-              height: 84,
+              width: 108,
+              height: 108,
               decoration: BoxDecoration(
-                borderRadius: AppRadii.mdAll,
-                color: Colors.white.withValues(alpha: 0.08),
-                border: Border.all(color: AppColors.stroke),
+                borderRadius: AppRadii.lgAll,
+                color: Colors.white.withValues(alpha: 0.1),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                boxShadow: AppShadows.card,
               ),
               child: const Icon(
                 Icons.folder_rounded,
-                size: 36,
+                size: 46,
                 color: Color(0xFF9CC4FF),
               ),
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'НА УСТРОЙСТВЕ',
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.3,
-                      color: Color(0xFF9CC4FF),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    trackCountLabel(tracks.length),
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.4,
-                      color: AppColors.text,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      FilledButton.icon(
-                        onPressed: () => context
-                            .read<PlayerProvider>()
-                            .playTracks(tracks, startIndex: 0),
-                        icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                        label: const Text('Слушать'),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        onPressed: onRefresh,
-                        icon: const Icon(Icons.refresh_rounded, size: 20),
-                        color: AppColors.text,
-                        style: IconButton.styleFrom(
-                          backgroundColor: Colors.white.withValues(alpha: 0.08),
-                          shape: const CircleBorder(),
-                        ),
-                        tooltip: 'Обновить',
-                      ),
-                    ],
-                  ),
-                ],
+            const SizedBox(height: 14),
+            const Text(
+              'НА УСТРОЙСТВЕ',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.4,
+                color: Color(0xFF9CC4FF),
               ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Мои треки',
+              style: TextStyle(
+                fontSize: 23,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.6,
+                color: AppColors.text,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              _durationSummary(),
+              style: const TextStyle(fontSize: 12.5, color: AppColors.textDim),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => context
+                        .read<PlayerProvider>()
+                        .playTracks(tracks, startIndex: 0),
+                    icon: const Icon(Icons.play_arrow_rounded, size: 21),
+                    label: const Text('Слушать'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => context
+                        .read<PlayerProvider>()
+                        .playTracks(tracks, startIndex: 0, shuffle: true),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: Colors.white.withValues(alpha: 0.08),
+                    ),
+                    icon: const Icon(Icons.shuffle_rounded, size: 19),
+                    label: const Text('Перемешать'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

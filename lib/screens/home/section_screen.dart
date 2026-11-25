@@ -5,15 +5,15 @@ import '../../core/theme/design_tokens.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/track.dart';
 import '../../providers/player_provider.dart';
+import '../../widgets/artwork.dart';
 import '../../widgets/common.dart';
+import '../../widgets/track_menu.dart';
 import '../../widgets/track_tile.dart';
 
-/// Полный список треков секции главной («Смотреть все»).
+/// Полный список треков секции главной («Смотреть все») с editorial-шапкой.
 class SectionTracksScreen extends StatelessWidget {
   final String title;
-
   final String? subtitle;
-
   final List<Track> tracks;
 
   const SectionTracksScreen({
@@ -26,6 +26,8 @@ class SectionTracksScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final firstFull = tracks.indexWhere((track) => !track.isPreview);
+    final startIdx = firstFull < 0 ? 0 : firstFull;
+    final heroUrl = tracks.isEmpty ? null : tracks.first.artworkUrl;
 
     return Scaffold(
       appBar: AppBar(title: Text(title)),
@@ -37,7 +39,7 @@ class SectionTracksScreen extends StatelessWidget {
           : ListView.builder(
               padding: const EdgeInsets.fromLTRB(
                 8,
-                8,
+                4,
                 8,
                 AppSpacing.pageBottom,
               ),
@@ -45,38 +47,113 @@ class SectionTracksScreen extends StatelessWidget {
               itemBuilder: (context, index) {
                 if (index == 0) {
                   return Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
-                    child: Row(
-                      children: [
-                        Expanded(
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 14),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: AppRadii.xlAll,
+                        border: Border.all(color: AppColors.glassBorder),
+                        boxShadow: AppShadows.card,
+                      ),
+                      child: ArtworkBackdrop(
+                        url: heroUrl,
+                        blur: 32,
+                        overlayColor:
+                            AppColors.forestDark.withValues(alpha: 0.56),
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            AppColors.background.withValues(alpha: 0.9),
+                          ],
+                        ),
+                        borderRadius: AppRadii.xlAll,
+                        child: Padding(
+                          padding: const EdgeInsets.all(18),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                trackCountLabel(tracks.length),
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              if (subtitle != null) ...[
-                                const SizedBox(height: 3),
-                                Text(
-                                  subtitle!,
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(color: AppColors.textMuted),
+                              Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: AppRadii.lgAll,
+                                  boxShadow: AppShadows.artwork,
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.16),
+                                  ),
                                 ),
-                              ],
+                                child: ArtworkView(
+                                  size: 120,
+                                  url: heroUrl,
+                                  borderRadius: AppRadii.lgAll,
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              Text(
+                                title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 21,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.5,
+                                  color: AppColors.text,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                subtitle ?? trackCountLabel(tracks.length),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  color: AppColors.textDim,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: FilledButton.icon(
+                                      onPressed: () => context
+                                          .read<PlayerProvider>()
+                                          .playTracks(
+                                            tracks,
+                                            startIndex: startIdx,
+                                          ),
+                                      icon: const Icon(
+                                        Icons.play_arrow_rounded,
+                                        size: 21,
+                                      ),
+                                      label: const Text('Слушать'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () => context
+                                          .read<PlayerProvider>()
+                                          .playTracks(
+                                            tracks,
+                                            startIndex: startIdx,
+                                            shuffle: true,
+                                          ),
+                                      style: OutlinedButton.styleFrom(
+                                        backgroundColor: Colors.white
+                                            .withValues(alpha: 0.08),
+                                      ),
+                                      icon: const Icon(
+                                        Icons.shuffle_rounded,
+                                        size: 19,
+                                      ),
+                                      label: const Text('Перемешать'),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
                         ),
-                        FilledButton.icon(
-                          onPressed: () =>
-                              context.read<PlayerProvider>().playTracks(
-                                tracks,
-                                startIndex: firstFull < 0 ? 0 : firstFull,
-                              ),
-                          icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                          label: const Text('Слушать'),
-                        ),
-                      ],
+                      ),
                     ),
                   );
                 }
@@ -88,6 +165,7 @@ class SectionTracksScreen extends StatelessWidget {
                     tracks,
                     startIndex: index - 1,
                   ),
+                  onLongPress: () => showTrackMenu(context, track: track),
                   trailing: LikeButton(track: track),
                 );
               },

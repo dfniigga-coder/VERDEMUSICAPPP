@@ -5,23 +5,7 @@ import '../data/api/search_api.dart';
 import '../data/models/track.dart';
 import '../data/repositories/library_repository.dart';
 
-/// Фильтр результатов поиска по длине трека.
-enum SearchFilter { all, full, preview }
-
-extension SearchFilterLabel on SearchFilter {
-  String get label {
-    switch (this) {
-      case SearchFilter.all:
-        return 'Все';
-      case SearchFilter.full:
-        return 'Полные';
-      case SearchFilter.preview:
-        return 'Превью';
-    }
-  }
-}
-
-/// Мультиисточниковый поиск + недавние запросы.
+/// Поиск полных треков из YouTube Music + недавние запросы.
 class SearchProvider extends ChangeNotifier {
   SearchProvider(this._searchApi, this._libraryRepo);
 
@@ -34,7 +18,6 @@ class SearchProvider extends ChangeNotifier {
   bool _loading = false;
   String? _error;
   String _lastQuery = '';
-  SearchFilter _filter = SearchFilter.all;
 
   /// null — поиск ещё не выполнялся / поле очищено.
   List<Track>? get results => _results;
@@ -45,41 +28,14 @@ class SearchProvider extends ChangeNotifier {
 
   String get lastQuery => _lastQuery;
 
-  SearchFilter get filter => _filter;
-
-  List<Track> get visibleResults {
-    final all = _results;
-    if (all == null) return const [];
-    switch (_filter) {
-      case SearchFilter.all:
-        return all;
-      case SearchFilter.full:
-        return [
-          for (final track in all)
-            if (!track.isPreview) track,
-        ];
-      case SearchFilter.preview:
-        return [
-          for (final track in all)
-            if (track.isPreview) track,
-        ];
-    }
-  }
+  List<Track> get visibleResults => _results ?? const [];
 
   bool get hasResults => visibleResults.isNotEmpty;
 
   bool get hasAnyResults => _results != null && _results!.isNotEmpty;
 
-  String get emptySubtitle {
-    switch (_filter) {
-      case SearchFilter.all:
-        return 'Попробуйте другой запрос или проверьте источники';
-      case SearchFilter.full:
-        return 'Полных треков по этому запросу нет';
-      case SearchFilter.preview:
-        return 'Превью по этому запросу нет';
-    }
-  }
+  String get emptySubtitle =>
+      'Попробуйте уточнить название трека или исполнителя';
 
   bool get showRecent => _results == null && _error == null && !_loading;
 
@@ -98,24 +54,21 @@ class SearchProvider extends ChangeNotifier {
     _loading = true;
     _error = null;
     _lastQuery = q;
-    _filter = SearchFilter.all;
     notifyListeners();
 
     try {
       final outcome = await _searchApi.searchSources(
         q,
         onPartial: (partial) {
-          if (seq != _seq) return; // устаревший ответ — игнорируем
+          if (seq != _seq) return;
           if (partial.tracks.isEmpty) return;
 
-          // Показываем первые результаты сразу, не дожидаясь YouTube и
-          // Archive. Тонкий индикатор сверху сообщает, что поиск продолжается.
           _results = partial.tracks;
           _error = null;
           notifyListeners();
         },
       );
-      if (seq != _seq) return; // устаревший ответ — игнорируем
+      if (seq != _seq) return;
 
       _results = outcome.tracks;
       _loading = false;
@@ -123,7 +76,7 @@ class SearchProvider extends ChangeNotifier {
       if (outcome.tracks.isEmpty && outcome.allFailed) {
         _error = outcome.noNetwork
             ? const NetworkException().message
-            : 'Не удалось получить результаты. '
+            : 'Не удалось получить результаты с YouTube Music. '
                   'Проверьте соединение и попробуйте ещё раз.';
       }
       notifyListeners();
@@ -138,12 +91,6 @@ class SearchProvider extends ChangeNotifier {
       _loading = false;
       notifyListeners();
     }
-  }
-
-  void setFilter(SearchFilter filter) {
-    if (_filter == filter) return;
-    _filter = filter;
-    notifyListeners();
   }
 
   void saveRecent(String query) {
@@ -162,7 +109,6 @@ class SearchProvider extends ChangeNotifier {
     _results = null;
     _error = null;
     _loading = false;
-    _filter = SearchFilter.all;
     _lastQuery = '';
   }
 }

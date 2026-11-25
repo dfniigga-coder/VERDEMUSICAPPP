@@ -3,18 +3,12 @@ import 'package:flutter/services.dart';
 
 import 'design_tokens.dart';
 
-/// Тёмная Material 3 тема Verde «Deep Forest 2.0».
-///
-/// Палитра и радиусы живут в [AppColors]/[AppRadii], а здесь собирается
-/// единый ThemeData: типографика Manrope, стеклянные поверхности,
-/// пилюли-кнопки и спокойные состояния.
+/// Тёмная Material 3 тема Verde «Liquid Forest Glass».
 class AppTheme {
   AppTheme._();
 
   static const String fontFamily = 'Manrope';
 
-  // Совместимые алиасы: старые экраны продолжают работать, но получают
-  // новые цвета из дизайн-токенов.
   static const Color accentGreen = AppColors.accent;
   static const Color accentBright = AppColors.accentBright;
   static const Color background = AppColors.background;
@@ -41,7 +35,7 @@ class AppTheme {
       surfaceContainerHighest: AppColors.surfaceHigh,
       surfaceTint: Colors.transparent,
       outline: AppColors.stroke,
-      outlineVariant: AppColors.stroke,
+      outlineVariant: AppColors.strokeSoft,
       error: AppColors.error,
       onError: Colors.black,
     );
@@ -61,9 +55,9 @@ class AppTheme {
       dividerColor: AppColors.stroke,
       disabledColor: AppColors.textMuted,
       hintColor: AppColors.textMuted,
-      focusColor: AppColors.accentSoft(0.2),
+      focusColor: AppColors.accentSoft(0.22),
       hoverColor: Colors.white.withValues(alpha: 0.04),
-      splashColor: AppColors.accentSoft(0.12),
+      splashColor: AppColors.accentSoft(0.14),
       highlightColor: Colors.white.withValues(alpha: 0.03),
       applyElevationOverlayColor: false,
       visualDensity: VisualDensity.standard,
@@ -84,8 +78,8 @@ class AppTheme {
         titleTextStyle: TextStyle(
           fontFamily: fontFamily,
           fontSize: 22,
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.4,
+          fontWeight: FontWeight.w800,
+          letterSpacing: -0.5,
           color: AppColors.text,
         ),
       ),
@@ -113,17 +107,17 @@ class AppTheme {
       ),
       iconTheme: const IconThemeData(color: AppColors.text, size: 24),
       sliderTheme: const SliderThemeData(
-        trackHeight: 4,
-        thumbColor: AppColors.accentBright,
-        activeTrackColor: AppColors.accent,
+        trackHeight: 4.5,
+        thumbColor: AppColors.text,
+        activeTrackColor: AppColors.accentBright,
         inactiveTrackColor: AppColors.surfaceHigh,
-        overlayColor: Color(0x331DB954),
-        thumbShape: RoundSliderThumbShape(enabledThumbRadius: 8),
-        overlayShape: RoundSliderOverlayShape(overlayRadius: 18),
+        overlayColor: Color(0x334AE88A),
+        thumbShape: RoundSliderThumbShape(enabledThumbRadius: 7.5),
+        overlayShape: RoundSliderOverlayShape(overlayRadius: 16),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.surfaceRaised,
+        fillColor: AppColors.surfaceRaised.withValues(alpha: 0.9),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.lg,
           vertical: 14,
@@ -139,9 +133,9 @@ class AppTheme {
         ),
         prefixIconColor: AppColors.textDim,
         suffixIconColor: AppColors.textDim,
-        border: _inputBorder(AppColors.stroke, 1),
-        enabledBorder: _inputBorder(AppColors.stroke, 1),
-        focusedBorder: _inputBorder(AppColors.accent, 1.4),
+        border: _inputBorder(AppColors.glassBorder, 1),
+        enabledBorder: _inputBorder(AppColors.glassBorder, 1),
+        focusedBorder: _inputBorder(AppColors.accentBright, 1.4),
         errorBorder: _inputBorder(AppColors.error, 1.2),
         focusedErrorBorder: _inputBorder(AppColors.error, 1.4),
       ),
@@ -156,7 +150,7 @@ class AppTheme {
           shape: const StadiumBorder(),
           textStyle: const TextStyle(
             fontFamily: fontFamily,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w800,
             fontSize: 14,
           ),
         ),
@@ -164,7 +158,7 @@ class AppTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.text,
-          side: const BorderSide(color: AppColors.stroke),
+          side: const BorderSide(color: AppColors.glassBorder),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
           shape: const StadiumBorder(),
           textStyle: const TextStyle(
@@ -181,8 +175,8 @@ class AppTheme {
           shape: const StadiumBorder(),
           textStyle: const TextStyle(
             fontFamily: fontFamily,
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            fontSize: 13.5,
           ),
         ),
       ),
@@ -194,7 +188,7 @@ class AppTheme {
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
           borderRadius: AppRadii.lgAll,
-          side: BorderSide(color: AppColors.stroke),
+          side: BorderSide(color: AppColors.glassBorder),
         ),
       ),
       listTileTheme: const ListTileThemeData(
@@ -207,21 +201,24 @@ class AppTheme {
         modalBackgroundColor: AppColors.surface,
         surfaceTintColor: Colors.transparent,
         showDragHandle: false,
-        dragHandleColor: AppColors.stroke,
-        modalBarrierColor: Colors.black54,
+        dragHandleColor: AppColors.glassBorder,
+        modalBarrierColor: Colors.black87,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
         ),
       ),
       dialogTheme: const DialogThemeData(
         backgroundColor: AppColors.surfaceRaised,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: AppRadii.xlAll),
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadii.xlAll,
+          side: BorderSide(color: AppColors.glassBorder),
+        ),
         titleTextStyle: TextStyle(
           fontFamily: fontFamily,
           fontSize: 20,
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.3,
+          fontWeight: FontWeight.w800,
+          letterSpacing: -0.4,
           color: AppColors.text,
         ),
         contentTextStyle: TextStyle(
@@ -238,10 +235,14 @@ class AppTheme {
           fontFamily: fontFamily,
           color: AppColors.text,
           fontSize: 13.5,
+          fontWeight: FontWeight.w500,
         ),
         actionTextColor: AppColors.accentBright,
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: AppRadii.mdAll),
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadii.mdAll,
+          side: BorderSide(color: AppColors.glassBorder),
+        ),
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(
         color: AppColors.accentBright,
@@ -255,12 +256,12 @@ class AppTheme {
       ),
       chipTheme: ChipThemeData(
         backgroundColor: AppColors.surfaceRaised,
-        selectedColor: AppColors.accentSoft(0.18),
+        selectedColor: AppColors.accentSoft(0.22),
         disabledColor: AppColors.surface,
-        side: const BorderSide(color: AppColors.stroke),
+        side: const BorderSide(color: AppColors.glassBorder),
         shape: const StadiumBorder(),
         showCheckmark: false,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
         labelStyle: const TextStyle(
           fontFamily: fontFamily,
           fontSize: 12.5,
@@ -283,11 +284,11 @@ class AppTheme {
           }),
           backgroundColor: WidgetStateProperty.resolveWith((states) {
             return states.contains(WidgetState.selected)
-                ? AppColors.accentSoft(0.16)
+                ? AppColors.accentSoft(0.18)
                 : AppColors.surfaceRaised;
           }),
           side: const WidgetStatePropertyAll(
-            BorderSide(color: AppColors.stroke),
+            BorderSide(color: AppColors.glassBorder),
           ),
           textStyle: const WidgetStatePropertyAll(
             TextStyle(
@@ -311,7 +312,7 @@ class AppTheme {
         decoration: BoxDecoration(
           color: AppColors.surfaceHigh,
           borderRadius: AppRadii.smAll,
-          border: Border.all(color: AppColors.stroke),
+          border: Border.all(color: AppColors.glassBorder),
         ),
         textStyle: const TextStyle(
           fontFamily: fontFamily,
@@ -323,7 +324,10 @@ class AppTheme {
         color: AppColors.surfaceRaised,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: AppRadii.mdAll),
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadii.mdAll,
+          side: BorderSide(color: AppColors.glassBorder),
+        ),
         textStyle: TextStyle(
           fontFamily: fontFamily,
           color: AppColors.text,
@@ -332,7 +336,7 @@ class AppTheme {
       ),
       textSelectionTheme: TextSelectionThemeData(
         cursorColor: AppColors.accentBright,
-        selectionColor: AppColors.accentSoft(0.3),
+        selectionColor: AppColors.accentSoft(0.32),
         selectionHandleColor: AppColors.accent,
       ),
     );
@@ -353,33 +357,33 @@ class AppTheme {
     return const TextTheme(
       displayLarge: TextStyle(
         fontFamily: family,
-        fontSize: 32,
+        fontSize: 34,
         fontWeight: FontWeight.w800,
-        letterSpacing: -0.8,
-        height: 1.12,
+        letterSpacing: -1.0,
+        height: 1.1,
         color: primary,
       ),
       displayMedium: TextStyle(
         fontFamily: family,
-        fontSize: 28,
+        fontSize: 30,
         fontWeight: FontWeight.w800,
-        letterSpacing: -0.6,
-        height: 1.15,
+        letterSpacing: -0.8,
+        height: 1.14,
         color: primary,
       ),
       displaySmall: TextStyle(
         fontFamily: family,
-        fontSize: 26,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.5,
-        height: 1.18,
+        fontSize: 28,
+        fontWeight: FontWeight.w800,
+        letterSpacing: -0.8,
+        height: 1.16,
         color: primary,
       ),
       headlineLarge: TextStyle(
         fontFamily: family,
         fontSize: 24,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.5,
+        fontWeight: FontWeight.w800,
+        letterSpacing: -0.6,
         height: 1.2,
         color: primary,
       ),
@@ -387,7 +391,7 @@ class AppTheme {
         fontFamily: family,
         fontSize: 21,
         fontWeight: FontWeight.w700,
-        letterSpacing: -0.4,
+        letterSpacing: -0.45,
         height: 1.2,
         color: primary,
       ),
@@ -395,15 +399,15 @@ class AppTheme {
         fontFamily: family,
         fontSize: 18,
         fontWeight: FontWeight.w700,
-        letterSpacing: -0.3,
+        letterSpacing: -0.35,
         height: 1.25,
         color: primary,
       ),
       titleLarge: TextStyle(
         fontFamily: family,
-        fontSize: 18,
+        fontSize: 19,
         fontWeight: FontWeight.w700,
-        letterSpacing: -0.3,
+        letterSpacing: -0.35,
         height: 1.25,
         color: primary,
       ),
@@ -411,7 +415,7 @@ class AppTheme {
         fontFamily: family,
         fontSize: 15,
         fontWeight: FontWeight.w600,
-        letterSpacing: -0.1,
+        letterSpacing: -0.15,
         height: 1.3,
         color: primary,
       ),

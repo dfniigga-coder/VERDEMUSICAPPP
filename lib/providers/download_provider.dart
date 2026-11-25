@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 
 import '../data/models/track.dart';
+import '../services/lyrics_service.dart';
 import '../services/mp3_download_service.dart';
 
 /// Текущая (или последняя) задача скачивания.
@@ -92,6 +95,8 @@ class DownloadProvider extends ChangeNotifier {
     final existing = findDownloaded(track);
     final existingPath = existing?.localPath;
     if (existing != null && existingPath != null && existingPath.isNotEmpty) {
+      final lrcPath = LyricsService.sidecarLrcPath(existingPath);
+      final hasLrc = File(lrcPath).existsSync();
       _task = DownloadTask(
         track: track,
         stage: DownloadStage.done,
@@ -99,6 +104,8 @@ class DownloadProvider extends ChangeNotifier {
         result: DownloadResult(
           localPath: existingPath,
           publicPath: null,
+          lyricsPath: hasLrc ? lrcPath : null,
+          hasLyrics: hasLrc,
           title: existing.title,
           artist: existing.artist,
           durationSec: existing.durationSec,
@@ -143,10 +150,11 @@ class DownloadProvider extends ChangeNotifier {
       );
       notifyListeners();
 
+      final lyricsSuffix = result.hasLyrics ? ' + лирика' : '';
       notice.value = DownloadNotice(
         result.publicPath != null
-            ? '«${result.title}» сохранён в ${result.publicPath}'
-            : '«${result.title}» добавлен в «Мои треки»',
+            ? '«${result.title}»$lyricsSuffix сохранён в ${result.publicPath}'
+            : '«${result.title}»$lyricsSuffix добавлен в «Мои треки»',
       );
       return true;
     } on DownloadException catch (error) {

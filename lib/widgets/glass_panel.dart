@@ -4,11 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../core/theme/design_tokens.dart';
 
-/// Полупрозрачная панель с размытием фона.
+/// Полупрозрачная панель с эффектом жидкого стекла iOS 18 и верхним бликом.
 ///
-/// Blur используется точечно (навигация, мини-плеер, кнопки поверх обложки):
-/// `BackdropFilter` дорог на слабых Android-устройствах. При отключённых
-/// анимациях размытие автоматически убирается.
+/// При отключённых системных анимациях размытие автоматически отключается.
 class GlassPanel extends StatelessWidget {
   final Widget child;
 
@@ -22,14 +20,17 @@ class GlassPanel extends StatelessWidget {
 
   final Border? border;
 
+  final bool specularHighlight;
+
   const GlassPanel({
     super.key,
     required this.child,
     this.borderRadius = AppRadii.xlAll,
     this.padding,
     this.color,
-    this.blur = 18,
+    this.blur = 20,
     this.border,
+    this.specularHighlight = true,
   });
 
   @override
@@ -44,12 +45,27 @@ class GlassPanel extends StatelessWidget {
           sigmaX: disableAnimations == true ? 0 : blur,
           sigmaY: disableAnimations == true ? 0 : blur,
         ),
-        child: DecoratedBox(
+        child: Container(
           decoration: BoxDecoration(
-            color: color ?? AppColors.surfaceRaised.withValues(alpha: 0.82),
+            color: color ?? AppColors.glassSurface,
             borderRadius: borderRadius,
-            border: border ?? Border.all(color: AppColors.stroke),
+            border: border ?? Border.all(color: AppColors.glassBorder),
           ),
+          foregroundDecoration: specularHighlight
+              ? BoxDecoration(
+                  borderRadius: borderRadius,
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white.withValues(alpha: 0.09),
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.08),
+                    ],
+                    stops: const [0.0, 0.25, 1.0],
+                  ),
+                )
+              : null,
           child: content,
         ),
       ),

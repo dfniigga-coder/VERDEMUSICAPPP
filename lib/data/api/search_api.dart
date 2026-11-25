@@ -79,7 +79,10 @@ class SearchApi {
     final q = query.trim();
     if (q.isEmpty) return const SearchOutcome();
 
-    final cacheKey = _cacheKey(q, sources);
+    // Поиск по умолчанию ведётся только по полным трекам YouTube Music.
+    final effectiveSources = sources ?? const {TrackSource.youtube};
+
+    final cacheKey = _cacheKey(q, effectiveSources);
     final cached = _cache[cacheKey];
     if (cached != null) {
       if (DateTime.now().difference(cached.createdAt) < _cacheTtl) {
@@ -93,8 +96,7 @@ class SearchApi {
       _cache.remove(cacheKey);
     }
 
-    bool enabled(TrackSource source) =>
-        sources == null || sources.contains(source);
+    bool enabled(TrackSource source) => effectiveSources.contains(source);
 
     final futures = <Future<_SourceAttempt>>[];
     if (enabled(TrackSource.audius)) {

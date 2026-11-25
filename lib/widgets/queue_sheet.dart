@@ -8,12 +8,12 @@ import '../providers/player_provider.dart';
 import 'artwork.dart';
 import 'equalizer_bars.dart';
 
-/// Bottom-лист с очередью воспроизведения: текущий трек подсвечен,
-/// есть кнопки перемешивания по списку и удаления треков.
+/// Стеклянный bottom-лист с очередью воспроизведения.
 Future<void> showQueueSheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    backgroundColor: AppColors.surface,
     builder: (_) => const _QueueSheet(),
   );
 }
@@ -44,7 +44,7 @@ class _QueueSheet extends StatelessWidget {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: AppColors.stroke,
+                color: AppColors.glassBorder,
                 borderRadius: BorderRadius.circular(99),
               ),
             ),
@@ -61,11 +61,23 @@ class _QueueSheet extends StatelessWidget {
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const Spacer(),
-                    Text(
-                      '${queue.length} ${queue.length == 1 ? 'трек' : 'треков'}',
-                      style: const TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 11.5,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceRaised,
+                        borderRadius: BorderRadius.circular(AppRadii.pill),
+                        border: Border.all(color: AppColors.glassBorder),
+                      ),
+                      child: Text(
+                        trackCountLabel(queue.length),
+                        style: const TextStyle(
+                          color: AppColors.textDim,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
@@ -152,11 +164,8 @@ class _QueueSheet extends StatelessWidget {
 
 class _QueueTile extends StatelessWidget {
   final Track track;
-
   final bool isCurrent;
-
   final Widget trailing;
-
   final VoidCallback onTap;
 
   const _QueueTile({
@@ -168,32 +177,41 @@ class _QueueTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      onTap: onTap,
-      tileColor: isCurrent ? AppColors.accentSoft(0.08) : null,
-      shape: const RoundedRectangleBorder(borderRadius: AppRadii.mdAll),
-      leading: ArtworkView(
-        size: 44,
-        url: track.artworkUrl,
-        borderRadius: AppRadii.smAll,
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      decoration: BoxDecoration(
+        color: isCurrent ? AppColors.accentSoft(0.12) : Colors.transparent,
+        borderRadius: AppRadii.mdAll,
+        border: isCurrent
+            ? Border.all(color: AppColors.accentBright.withValues(alpha: 0.24))
+            : null,
       ),
-      title: Text(
-        track.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontWeight: FontWeight.w600,
-          fontSize: 14,
-          color: isCurrent ? AppColors.accentBright : AppColors.text,
+      child: ListTile(
+        onTap: onTap,
+        shape: const RoundedRectangleBorder(borderRadius: AppRadii.mdAll),
+        leading: ArtworkView(
+          size: 44,
+          url: track.artworkUrl,
+          borderRadius: AppRadii.smAll,
         ),
+        title: Text(
+          track.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w600,
+            fontSize: 14,
+            color: isCurrent ? AppColors.accentBright : AppColors.text,
+          ),
+        ),
+        subtitle: Text(
+          '${track.artist} · ${formatDuration(track.durationSec == null ? null : Duration(seconds: track.durationSec!))}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+        ),
+        trailing: trailing,
       ),
-      subtitle: Text(
-        '${track.artist} · ${formatDuration(track.durationSec == null ? null : Duration(seconds: track.durationSec!))}',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: AppColors.textDim, fontSize: 12),
-      ),
-      trailing: trailing,
     );
   }
 }

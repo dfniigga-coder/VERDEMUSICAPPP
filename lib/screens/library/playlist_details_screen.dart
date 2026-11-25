@@ -9,27 +9,32 @@ import '../../core/utils/formatters.dart';
 import '../../data/models/playlist.dart';
 import '../../data/models/track.dart';
 import '../../data/repositories/local_tracks_repository.dart';
-import '../../data/repositories/music_repository.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/player_provider.dart';
-import '../../widgets/app_card.dart';
+import '../../services/youtube_service.dart';
 import '../../widgets/artwork.dart';
 import '../../widgets/common.dart';
 import '../../widgets/dialogs.dart';
 import '../../widgets/track_menu.dart';
 import '../../widgets/track_tile.dart';
 
-/// Детальный экран плейлиста: воспроизведение, шаффл, добавление треков,
-/// переименование/удаление, удаление треков из плейлиста.
-class PlaylistDetailsScreen extends StatelessWidget {
+/// Детальный экран плейлиста в стиле Apple Music.
+class PlaylistDetailsScreen extends StatefulWidget {
   final String playlistId;
 
   const PlaylistDetailsScreen({super.key, required this.playlistId});
 
   @override
+  State<PlaylistDetailsScreen> createState() => _PlaylistDetailsScreenState();
+}
+
+class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
+  String _filter = '';
+
+  @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryProvider>();
-    final playlist = library.playlistById(playlistId);
+    final playlist = library.playlistById(widget.playlistId);
 
     if (playlist == null) {
       return Scaffold(
@@ -40,6 +45,19 @@ class PlaylistDetailsScreen extends StatelessWidget {
         ),
       );
     }
+
+    final allTracks = playlist.tracks;
+    final q = _filter.trim().toLowerCase();
+    final visible = q.isEmpty
+        ? allTracks
+        : allTracks
+              .where(
+                (t) =>
+                    t.title.toLowerCase().contains(q) ||
+                    t.artist.toLowerCase().contains(q),
+              )
+              .toList(growable: false);
+    final showSearch = allTracks.length >= 6;
 
     return Scaffold(
       appBar: AppBar(
@@ -55,7 +73,7 @@ class PlaylistDetailsScreen extends StatelessWidget {
         onPressed: () => _addTracks(context),
         child: const Icon(Icons.add_rounded),
       ),
-      body: playlist.tracks.isEmpty
+      body: allTracks.isEmpty
           ? EmptyState(
               icon: Icons.queue_music_rounded,
               title: 'Плейлист пуст',
@@ -75,15 +93,27 @@ class PlaylistDetailsScreen extends StatelessWidget {
                 8,
                 AppSpacing.pageBottom,
               ),
-              itemCount: playlist.tracks.length + 1,
+              itemCount: visible.length + (showSearch ? 2 : 1),
               itemBuilder: (context, index) {
                 if (index == 0) return _Header(playlist: playlist);
-                final track = playlist.tracks[index - 1];
-                final trackIndex = index - 1;
+                if (showSearch && index == 1) {
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                    child: TextField(
+                      onChanged: (v) => setState(() => _filter = v),
+                      decoration: const InputDecoration(
+                        hintText: 'Фильтр в плейлисте…',
+                        prefixIcon: Icon(Icons.search_rounded, size: 20),
+                      ),
+                    ),
+                  );
+                }
+                final trackIndex = index - (showSearch ? 2 : 1);
+                final track = visible[trackIndex];
                 return TrackTile(
                   track: track,
                   onTap: () => context.read<PlayerProvider>().playTracks(
-                    playlist.tracks,
+                    visible,
                     startIndex: trackIndex,
                   ),
                   onLongPress: () => showTrackMenu(
@@ -91,7 +121,7 @@ class PlaylistDetailsScreen extends StatelessWidget {
                     track: track,
                     onRemoved: () {
                       context.read<LibraryProvider>().removeTrackFromPlaylist(
-                        playlistId,
+                        widget.playlistId,
                         track,
                       );
                       showAppSnackBar(context, 'Трек убран из плейлиста');
@@ -102,7 +132,7 @@ class PlaylistDetailsScreen extends StatelessWidget {
                     color: AppColors.textMuted,
                     onPressed: () {
                       context.read<LibraryProvider>().removeTrackFromPlaylist(
-                        playlistId,
+                        widget.playlistId,
                         track,
                       );
                       showAppSnackBar(context, 'Трек убран из плейлиста');
@@ -117,7 +147,7 @@ class PlaylistDetailsScreen extends StatelessWidget {
 
   Future<void> _showHeaderMenu(BuildContext context) async {
     final library = context.read<LibraryProvider>();
-    final playlist = library.playlistById(playlistId);
+    final playlist = library.playlistById(widget.playlistId);
     if (playlist == null) return;
 
     showModalBottomSheet<void>(
@@ -127,8 +157,19 @@ class PlaylistDetailsScreen extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              const SizedBox(height: 10),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.glassBorder,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
                 child: Row(
                   children: [
                     Expanded(
@@ -189,7 +230,7 @@ class PlaylistDetailsScreen extends StatelessWidget {
                   );
                   if (name == null || !context.mounted) return;
                   context.read<LibraryProvider>().renamePlaylist(
-                    playlistId,
+                    widget.playlistId,
                     name,
                   );
                 },
@@ -211,7 +252,9 @@ class PlaylistDetailsScreen extends StatelessWidget {
                     message: '«${playlist.name}» будет удалён безвозвратно.',
                   );
                   if (!ok || !context.mounted) return;
-                  context.read<LibraryProvider>().deletePlaylist(playlistId);
+                  context.read<LibraryProvider>().deletePlaylist(
+                    widget.playlistId,
+                  );
                   Navigator.of(context).pop();
                   showAppSnackBar(context, 'Плейлист удалён');
                 },
@@ -228,16 +271,26 @@ class PlaylistDetailsScreen extends StatelessWidget {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _AddTracksSheet(playlistId: playlistId),
+      builder: (_) => _AddTracksSheet(playlistId: widget.playlistId),
     );
   }
 }
 
-/// Шапка плейлиста: мозаичная обложка, название, счётчик и действия.
+/// Editorial-шапка плейлиста.
 class _Header extends StatelessWidget {
   final Playlist playlist;
 
   const _Header({required this.playlist});
+
+  String _durationSummary(List<Track> tracks) {
+    var sec = 0;
+    for (final t in tracks) {
+      sec += t.durationSec ?? 0;
+    }
+    if (sec <= 0) return trackCountLabel(tracks.length);
+    final mins = (sec / 60).round();
+    return '${trackCountLabel(tracks.length)} · ~$mins мин';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -245,90 +298,107 @@ class _Header extends StatelessWidget {
     final firstArtwork = tracks.isEmpty ? null : tracks.first.artworkUrl;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
-      child: AppCard(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.accentDeep.withValues(alpha: 0.55),
-            AppColors.surfaceRaised,
-          ],
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 14),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: AppRadii.xlAll,
+          border: Border.all(color: AppColors.glassBorder),
+          boxShadow: AppShadows.card,
         ),
-        borderRadius: AppRadii.xlAll,
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            ArtworkView(
-              size: 108,
-              url: firstArtwork,
-              borderRadius: AppRadii.mdAll,
-              placeholderIcon: Icons.queue_music_rounded,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'ПЛЕЙЛИСТ',
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.3,
-                      color: AppColors.accentBright,
+        child: ArtworkBackdrop(
+          url: firstArtwork,
+          blur: 32,
+          overlayColor: AppColors.forestDark.withValues(alpha: 0.56),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.transparent,
+              AppColors.background.withValues(alpha: 0.9),
+            ],
+          ),
+          borderRadius: AppRadii.xlAll,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: AppRadii.lgAll,
+                    boxShadow: AppShadows.artwork,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.16),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    playlist.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 19,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.4,
-                      height: 1.2,
-                      color: AppColors.text,
-                    ),
+                  child: ArtworkView(
+                    size: 132,
+                    url: firstArtwork,
+                    borderRadius: AppRadii.lgAll,
+                    placeholderIcon: Icons.queue_music_rounded,
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    trackCountLabel(tracks.length),
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      color: AppColors.textDim,
-                    ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'ПЛЕЙЛИСТ',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.4,
+                    color: AppColors.accentBright,
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      FilledButton.icon(
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  playlist.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    height: 1.2,
+                    color: AppColors.text,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  _durationSummary(tracks),
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: AppColors.textDim,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
                         onPressed: () => context
                             .read<PlayerProvider>()
                             .playTracks(tracks, startIndex: 0),
-                        icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                        icon: const Icon(Icons.play_arrow_rounded, size: 21),
                         label: const Text('Слушать'),
                       ),
-                      const SizedBox(width: 8),
-                      IconButton(
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
                         onPressed: () => context
                             .read<PlayerProvider>()
                             .playTracks(tracks, startIndex: 0, shuffle: true),
-                        icon: const Icon(Icons.shuffle_rounded, size: 20),
-                        color: AppColors.text,
-                        style: IconButton.styleFrom(
+                        style: OutlinedButton.styleFrom(
                           backgroundColor: Colors.white.withValues(alpha: 0.08),
-                          shape: const CircleBorder(),
                         ),
-                        tooltip: 'Перемешать',
+                        icon: const Icon(Icons.shuffle_rounded, size: 19),
+                        label: const Text('Перемешать'),
                       ),
-                    ],
-                  ),
-                ],
-              ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -371,8 +441,8 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
     }
     setState(() => _loading = true);
     try {
-      final repo = context.read<MusicRepository>();
-      final tracks = await repo.search(q);
+      final youtube = context.read<YoutubeService>();
+      final tracks = await youtube.searchTracks(q);
       if (!mounted) return;
       setState(() {
         _results = tracks;
@@ -453,7 +523,7 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: AppColors.stroke,
+                color: AppColors.glassBorder,
                 borderRadius: BorderRadius.circular(99),
               ),
             ),
@@ -512,7 +582,7 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
                   _sourceIndex == 0 ? _searchOnline(_query) : null,
               decoration: InputDecoration(
                 hintText: _sourceIndex == 0
-                    ? 'Поиск по трекам Audius'
+                    ? 'Поиск по YouTube Music'
                     : 'Фильтр по названию',
                 prefixIcon: const Icon(Icons.search_rounded, size: 21),
               ),
@@ -561,7 +631,6 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
       for (final t in playlist?.tracks ?? const <Track>[]) t.id,
     };
 
-    // Локальные треки дополнительно фильтруем по введённому тексту.
     final visible = _sourceIndex == 1 && _query.isNotEmpty
         ? _results
               .where(

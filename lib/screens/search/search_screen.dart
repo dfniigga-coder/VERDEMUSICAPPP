@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/design_tokens.dart';
@@ -9,15 +10,17 @@ import '../../providers/player_provider.dart';
 import '../../providers/search_provider.dart';
 import '../../services/youtube_link.dart';
 import '../../widgets/app_card.dart';
+import '../../widgets/artwork.dart';
 import '../../widgets/common.dart';
 import '../../widgets/download_sheet.dart';
-import '../../widgets/full_track_button.dart';
 import '../../widgets/link_download_sheet.dart';
+import '../../widgets/play_button.dart';
 import '../../widgets/skeleton.dart';
+import '../../widgets/source_badge.dart';
 import '../../widgets/track_menu.dart';
 import '../../widgets/track_tile.dart';
 
-/// Мультиисточниковый поиск: Deezer, iTunes, Audius, Jamendo, Archive, YouTube.
+/// Поиск полных треков из YouTube Music + скачивание MP3 с лирикой.
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
 
@@ -54,14 +57,12 @@ class _SearchScreenState extends State<SearchScreen> {
       context.read<SearchProvider>().search('');
       return;
     }
-    // Ссылку с YouTube Music в текстовый поиск не отправляем: её
-    // обрабатывает лист «ссылка → MP3».
     if (YoutubeLink.parse(query) != null) {
       context.read<SearchProvider>().search('');
       return;
     }
 
-    _debounce = Timer(const Duration(milliseconds: 250), () {
+    _debounce = Timer(const Duration(milliseconds: 280), () {
       if (!mounted) return;
       context.read<SearchProvider>().search(query);
     });
@@ -85,6 +86,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _pickQuery(String query) {
+    HapticFeedback.selectionClick();
     _controller.text = query;
     _controller.selection = TextSelection.collapsed(offset: query.length);
     _submit(query);
@@ -95,7 +97,6 @@ class _SearchScreenState extends State<SearchScreen> {
     final provider = context.watch<SearchProvider>();
     final query = _controller.text.trim();
     final isLink = YoutubeLink.parse(query) != null;
-    final hasQuery = query.isNotEmpty && !isLink;
 
     return Scaffold(
       body: SafeArea(
@@ -111,8 +112,8 @@ class _SearchScreenState extends State<SearchScreen> {
                 textInputAction: TextInputAction.search,
                 onSubmitted: _submit,
                 decoration: InputDecoration(
-                  hintText: 'Треки, исполнители, ссылки…',
-                  prefixIcon: const Icon(Icons.search_rounded, size: 21),
+                  hintText: 'Треки, артисты, ссылки YT Music…',
+                  prefixIcon: const Icon(Icons.search_rounded, size: 22),
                   suffixIcon: _controller.text.isEmpty
                       ? IconButton(
                           onPressed: () => showLinkDownloadSheet(context),
@@ -133,7 +134,6 @@ class _SearchScreenState extends State<SearchScreen> {
               _LinkHint(
                 onTap: () => showLinkDownloadSheet(context, initialUrl: query),
               ),
-            if (hasQuery) _FilterBar(provider: provider),
             if (provider.loading && provider.results != null)
               const LinearProgressIndicator(minHeight: 2),
             Expanded(child: _body(provider)),
@@ -145,17 +145,21 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _header() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+      child: Row(
         children: [
-          Text('Поиск', style: Theme.of(context).textTheme.displaySmall),
-          const SizedBox(height: 4),
-          const Text(
-            'Deezer · iTunes · Audius · Jamendo · Archive · YouTube',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 11.5, color: AppColors.textMuted),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Поиск', style: Theme.of(context).textTheme.displaySmall),
+                const SizedBox(height: 2),
+                const Text(
+                  'YouTube Music · Только полные треки',
+                  style: TextStyle(fontSize: 12, color: AppColors.textDim),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -183,11 +187,11 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     }
     if (provider.showRecent) {
-      return _RecentSearches(onPick: _pickQuery);
+      return _BrowseBody(onPick: _pickQuery);
     }
     final results = provider.visibleResults;
     if (results.isEmpty && provider.loading) {
-      return const LoadingView(message: 'Ищем ещё источники…');
+      return const LoadingView(message: 'Ищем в YouTube Music…');
     }
     if (results.isEmpty) {
       return EmptyState(
@@ -205,7 +209,6 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 }
 
-/// Подсказка, когда в поисковую строку вставлена ссылка YouTube.
 class _LinkHint extends StatelessWidget {
   final VoidCallback onTap;
 
@@ -217,7 +220,7 @@ class _LinkHint extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: AppCard(
         onTap: onTap,
-        color: AppColors.accentSoft(0.12),
+        color: AppColors.accentSoft(0.14),
         borderRadius: AppRadii.mdAll,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: const Row(
@@ -230,7 +233,7 @@ class _LinkHint extends StatelessWidget {
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Ссылка распознана — скачать трек в MP3?',
+                'Ссылка распознана — скачать MP3 + лирику?',
                 style: TextStyle(fontSize: 12.5, color: AppColors.text),
               ),
             ),
@@ -246,67 +249,38 @@ class _LinkHint extends StatelessWidget {
   }
 }
 
-/// Чипы фильтра: все треки, только полные, только превью.
-class _FilterBar extends StatelessWidget {
-  final SearchProvider provider;
-
-  const _FilterBar({required this.provider});
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: Row(
-        children: [
-          for (final filter in SearchFilter.values)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                label: Text(filter.label),
-                selected: provider.filter == filter,
-                showCheckmark: false,
-                selectedColor: AppColors.accentSoft(0.2),
-                labelStyle: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: provider.filter == filter
-                      ? AppColors.accentBright
-                      : AppColors.textDim,
-                ),
-                onSelected: (_) =>
-                    context.read<SearchProvider>().setFilter(filter),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Список результатов поиска.
+/// Список результатов поиска с выделенной карточкой «Лучший результат».
 class _ResultsList extends StatelessWidget {
   final List<Track> results;
-
   final void Function(List<Track>, int) onPlay;
 
   const _ResultsList({required this.results, required this.onPlay});
 
   @override
   Widget build(BuildContext context) {
+    final top = results.first;
+    final showTopResult = results.length >= 2;
+
     return ListView.builder(
       padding: const EdgeInsets.only(bottom: AppSpacing.bottomInset),
-      itemCount: results.length,
+      itemCount: results.length + (showTopResult ? 1 : 0),
       itemBuilder: (context, index) {
-        final track = results[index];
+        if (showTopResult && index == 0) {
+          return _TopResultCard(
+            track: top,
+            onTap: () => onPlay(results, 0),
+            onLongPress: () => showTrackMenu(context, track: top),
+          );
+        }
+        final trackIndex = showTopResult ? index - 1 : index;
+        final track = results[trackIndex];
         return TrackTile(
           track: track,
-          onTap: () => onPlay(results, index),
+          onTap: () => onPlay(results, trackIndex),
           onLongPress: () => showTrackMenu(context, track: track),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (track.isPreview) FullTrackButton(track: track),
               DownloadButton(track: track),
               LikeButton(track: track),
             ],
@@ -317,11 +291,97 @@ class _ResultsList extends StatelessWidget {
   }
 }
 
-/// Недавние поиски и подсказки, когда запроса ещё нет.
-class _RecentSearches extends StatelessWidget {
+class _TopResultCard extends StatelessWidget {
+  final Track track;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _TopResultCard({
+    required this.track,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+      child: AppCard(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        borderRadius: AppRadii.xlAll,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.forestMid.withValues(alpha: 0.45),
+            AppColors.surfaceRaised,
+          ],
+        ),
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            ArtworkView(
+              size: 74,
+              url: track.artworkUrl,
+              borderRadius: AppRadii.mdAll,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'ЛУЧШИЙ РЕЗУЛЬТАТ',
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.1,
+                      color: AppColors.accentBright,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    track.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.35,
+                      color: AppColors.text,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    track.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textDim,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  if (track.source != TrackSource.local)
+                    TrackSourceBadge(track: track),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            PlayButton(size: 46, onPressed: onTap),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Экран обзора в поиске: недавние, баннер ссылки, жанры и источники.
+class _BrowseBody extends StatelessWidget {
   final void Function(String) onPick;
 
-  const _RecentSearches({required this.onPick});
+  const _BrowseBody({required this.onPick});
 
   @override
   Widget build(BuildContext context) {
@@ -334,7 +394,7 @@ class _RecentSearches extends StatelessWidget {
         if (recent.isNotEmpty) ...[
           SectionHeader(
             title: 'Недавние запросы',
-            padding: const EdgeInsets.fromLTRB(0, 8, 0, 10),
+            padding: const EdgeInsets.fromLTRB(0, 6, 0, 10),
             action: TextButton(
               onPressed: provider.clearRecentSearches,
               style: TextButton.styleFrom(
@@ -353,40 +413,60 @@ class _RecentSearches extends StatelessWidget {
                   label: Text(q),
                   labelStyle: const TextStyle(
                     fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
                     color: AppColors.text,
                   ),
                   backgroundColor: AppColors.surfaceRaised,
-                  side: const BorderSide(color: AppColors.stroke),
+                  side: const BorderSide(color: AppColors.glassBorder),
                   avatar: const Icon(
                     Icons.history_rounded,
                     size: 16,
-                    color: AppColors.textMuted,
+                    color: AppColors.accentBright,
                   ),
                   onPressed: () => onPick(q),
                 ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
         ],
         _LinkCta(onTap: () => showLinkDownloadSheet(context)),
-        const SizedBox(height: 24),
+        const SizedBox(height: 22),
         const Text(
-          'Источники',
+          'Настроения и жанры',
           style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.3,
             color: AppColors.text,
           ),
         ),
-        const SizedBox(height: 10),
-        _SourceGrid(),
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final tileWidth = (constraints.maxWidth - 10) / 2;
+            return Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final mood in _moodGenres)
+                  SizedBox(
+                    width: tileWidth,
+                    child: _MoodTile(
+                      mood: mood,
+                      onTap: () => onPick(mood.query),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
         const SizedBox(height: 24),
         const Text(
-          'Попробуйте',
+          'Источник и загрузка',
           style: TextStyle(
-            fontSize: 15,
+            fontSize: 14,
             fontWeight: FontWeight.w700,
-            color: AppColors.text,
+            color: AppColors.textDim,
           ),
         ),
         const SizedBox(height: 10),
@@ -394,16 +474,32 @@ class _RecentSearches extends StatelessWidget {
           spacing: 8,
           runSpacing: 8,
           children: [
-            for (final query in _popularQueries)
-              ActionChip(
-                label: Text(query),
-                labelStyle: const TextStyle(
-                  fontSize: 12.5,
-                  color: AppColors.text,
+            for (final source in _sources)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 7,
                 ),
-                backgroundColor: AppColors.surfaceRaised,
-                side: const BorderSide(color: AppColors.stroke),
-                onPressed: () => onPick(query),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceRaised,
+                  borderRadius: BorderRadius.circular(AppRadii.pill),
+                  border: Border.all(color: AppColors.glassBorder),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(source.icon, size: 15, color: source.color),
+                    const SizedBox(width: 6),
+                    Text(
+                      source.name,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.text,
+                      ),
+                    ),
+                  ],
+                ),
               ),
           ],
         ),
@@ -412,13 +508,122 @@ class _RecentSearches extends StatelessWidget {
   }
 }
 
-const List<String> _popularQueries = [
-  'Lo-fi',
-  'Рэп',
-  'Рок',
-  'Электроника',
-  'Джаз',
-  'Классика',
+class _MoodTile extends StatelessWidget {
+  final _MoodGenre mood;
+  final VoidCallback onTap;
+
+  const _MoodTile({required this.mood, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      onTap: onTap,
+      borderRadius: AppRadii.mdAll,
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: mood.colors,
+      ),
+      padding: EdgeInsets.zero,
+      child: SizedBox(
+        height: 84,
+        child: Stack(
+          children: [
+            Positioned(
+              right: -10,
+              bottom: -10,
+              child: Transform.rotate(
+                angle: 0.35,
+                child: Icon(
+                  mood.icon,
+                  size: 62,
+                  color: Colors.white.withValues(alpha: 0.2),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: Text(
+                  mood.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                    height: 1.15,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MoodGenre {
+  final String title;
+  final String query;
+  final IconData icon;
+  final List<Color> colors;
+
+  const _MoodGenre(this.title, this.query, this.icon, this.colors);
+}
+
+const List<_MoodGenre> _moodGenres = [
+  _MoodGenre(
+    'Ночной драйв',
+    'Phonk',
+    Icons.directions_car_rounded,
+    [Color(0xFF0E6839), Color(0xFF062916)],
+  ),
+  _MoodGenre(
+    'Lo-Fi & Chill',
+    'Lo-fi',
+    Icons.nightlight_round,
+    [Color(0xFF284B7A), Color(0xFF101F36)],
+  ),
+  _MoodGenre(
+    'Хип-хоп',
+    'Hip hop',
+    Icons.mic_external_on_rounded,
+    [Color(0xFF8C441E), Color(0xFF3A1A0A)],
+  ),
+  _MoodGenre(
+    'Электроника',
+    'Electronic',
+    Icons.waves_rounded,
+    [Color(0xFF5D2D82), Color(0xFF231036)],
+  ),
+  _MoodGenre(
+    'Инди и Рок',
+    'Indie rock',
+    Icons.electric_bolt_rounded,
+    [Color(0xFF8C243D), Color(0xFF360B16)],
+  ),
+  _MoodGenre(
+    'Поп-хиты',
+    'Pop hits',
+    Icons.star_rounded,
+    [Color(0xFF167C5E), Color(0xFF093226)],
+  ),
+  _MoodGenre(
+    'Для фокуса',
+    'Ambient focus',
+    Icons.spa_rounded,
+    [Color(0xFF2C5C4E), Color(0xFF10241E)],
+  ),
+  _MoodGenre(
+    'Джаз и Соул',
+    'Jazz soul',
+    Icons.piano_rounded,
+    [Color(0xFF6E5120), Color(0xFF2B1F0A)],
+  ),
 ];
 
 class _LinkCta extends StatelessWidget {
@@ -433,7 +638,7 @@ class _LinkCta extends StatelessWidget {
       gradient: LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [AppColors.accentSoft(0.2), AppColors.surfaceRaised],
+        colors: [AppColors.accentSoft(0.24), AppColors.surfaceRaised],
       ),
       padding: const EdgeInsets.all(14),
       child: Row(
@@ -443,7 +648,7 @@ class _LinkCta extends StatelessWidget {
             height: 42,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: AppColors.accent.withValues(alpha: 0.18),
+              color: AppColors.accent.withValues(alpha: 0.2),
             ),
             child: const Icon(
               Icons.link_rounded,
@@ -459,15 +664,15 @@ class _LinkCta extends StatelessWidget {
                 Text(
                   'Скачать с YouTube Music',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 14.5,
                     fontWeight: FontWeight.w700,
                     color: AppColors.text,
                   ),
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'Вставьте ссылку — Verde сохранит MP3',
-                  style: TextStyle(fontSize: 11.5, color: AppColors.textDim),
+                  'Вставьте ссылку — Verde сохранит MP3 + лирику',
+                  style: TextStyle(fontSize: 12, color: AppColors.textDim),
                 ),
               ],
             ),
@@ -483,117 +688,23 @@ class _LinkCta extends StatelessWidget {
   }
 }
 
-class _SourceGrid extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = (constraints.maxWidth - 8) / 2;
-        return Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final source in _sources)
-              SizedBox(
-                width: width,
-                child: AppCard(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 10,
-                  ),
-                  borderRadius: AppRadii.mdAll,
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: source.color.withValues(alpha: 0.14),
-                        ),
-                        child: Icon(source.icon, size: 17, color: source.color),
-                      ),
-                      const SizedBox(width: 9),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              source.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.text,
-                              ),
-                            ),
-                            const SizedBox(height: 1),
-                            Text(
-                              source.subtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: AppColors.textMuted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
-
 class _SourceInfo {
   final String name;
-
-  final String subtitle;
-
   final IconData icon;
-
   final Color color;
 
-  const _SourceInfo(this.name, this.subtitle, this.icon, this.color);
+  const _SourceInfo(this.name, this.icon, this.color);
 }
 
 const List<_SourceInfo> _sources = [
   _SourceInfo(
-    'Deezer',
-    'Превью 30 секунд',
-    Icons.graphic_eq_rounded,
-    Color(0xFFB06BFF),
-  ),
-  _SourceInfo(
-    'iTunes',
-    'Превью 30 секунд',
-    Icons.music_note_rounded,
-    Color(0xFFFF6B81),
-  ),
-  _SourceInfo('Audius', 'Полные треки', Icons.waves_rounded, Color(0xFFCC6BFF)),
-  _SourceInfo(
-    'Jamendo',
-    'Полные треки',
-    Icons.public_rounded,
-    Color(0xFFFFB35C),
-  ),
-  _SourceInfo(
-    'Archive',
-    'Полные треки',
-    Icons.account_balance_rounded,
-    Color(0xFF6FA8FF),
-  ),
-  _SourceInfo(
-    'YouTube',
-    'Полные треки и MP3',
+    'YouTube Music · Полные треки',
     Icons.smart_display_rounded,
     Color(0xFFFF6B6B),
+  ),
+  _SourceInfo(
+    'LRCLIB · Лирика офлайн (.lrc)',
+    Icons.lyrics_rounded,
+    AppColors.accentBright,
   ),
 ];

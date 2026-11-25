@@ -1,4 +1,4 @@
-/// Текст трека из LRCLIB.
+/// Текст трека из LRCLIB или локального .lrc-файла.
 ///
 /// Сервис отдаёт либо обычный текст, либо LRC с таймкодами. Таймкоды
 /// нужны, чтобы подсвечивать текущую строку и автоматически
@@ -40,6 +40,67 @@ class Lyrics {
       lines.any((line) => line.text.trim().isNotEmpty);
 
   bool get hasContent => instrumental || hasText;
+
+  /// Формирует содержимое файла `.lrc` (с таймкодами или обычный текст).
+  String? toLrcString({String? fallbackTitle, String? fallbackArtist}) {
+    if (instrumental) return null;
+
+    if (hasSynced) {
+      final buffer = StringBuffer();
+      final t = (title ?? fallbackTitle)?.trim();
+      final a = (artist ?? fallbackArtist)?.trim();
+      if (t != null && t.isNotEmpty) buffer.writeln('[ti:$t]');
+      if (a != null && a.isNotEmpty) buffer.writeln('[ar:$a]');
+      for (final line in lines) {
+        final totalMs = line.time.inMilliseconds;
+        final mins = (totalMs ~/ 60000).toString().padLeft(2, '0');
+        final secs = ((totalMs % 60000) ~/ 1000).toString().padLeft(2, '0');
+        final cs = ((totalMs % 1000) ~/ 10).toString().padLeft(2, '0');
+        buffer.writeln('[$mins:$secs.$cs]${line.text}');
+      }
+      final result = buffer.toString().trim();
+      return result.isEmpty ? null : result;
+    }
+
+    final plain = plainText?.trim();
+    if (plain != null && plain.isNotEmpty) return plain;
+    return null;
+  }
+
+  /// Разбирает содержимое локального `.lrc`-файла (синхронного или обычного).
+  static Lyrics? fromLrcContent(
+    String raw, {
+    String? title,
+    String? artist,
+  }) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+
+    final parsedLines = parseLrc(trimmed);
+    if (parsedLines.isNotEmpty) {
+      final plain = parsedLines.map((line) => line.text).join('\n');
+      return Lyrics(
+        title: title,
+        artist: artist,
+        plainText: plain,
+        lines: parsedLines,
+      );
+    }
+
+    // Убираем мета-теги [ti:...], [ar:...], [al:...], [by:...] для обычного текста.
+    final cleanedLines = <String>[];
+    for (final line in trimmed.split(RegExp(r'\r?\n'))) {
+      final t = line.trim();
+      if (RegExp(r'^\[(?:ti|ar|al|by|offset):.*\]$', caseSensitive: false)
+          .hasMatch(t)) {
+        continue;
+      }
+      cleanedLines.add(line);
+    }
+    final plain = cleanedLines.join('\n').trim();
+    if (plain.isEmpty) return null;
+    return Lyrics(title: title, artist: artist, plainText: plain);
+  }
 
   factory Lyrics.fromJson(Map<String, dynamic> json) {
     final syncedRaw = json['syncedLyrics'];

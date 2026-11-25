@@ -1,5 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/design_tokens.dart';
@@ -16,13 +17,25 @@ import '../../widgets/dialogs.dart';
 import '../../widgets/link_download_sheet.dart';
 import '../../widgets/play_button.dart';
 import '../settings/settings_screen.dart';
+import '../stats/vibe_stats_screen.dart';
 import 'liked_tracks_screen.dart';
 import 'local_tracks_screen.dart';
 import 'playlist_details_screen.dart';
 
-/// Библиотека: лайки, плейлисты, треки с устройства.
-class LibraryScreen extends StatelessWidget {
+enum _LibraryFilter { all, playlists, device }
+
+/// Медиатека в стиле Apple Music / Spotify:
+/// фильтры, переключение вида Сетка/Список, «Понравившиеся», «Мои треки», «Мой вайб» и плейлисты.
+class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
+
+  @override
+  State<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+class _LibraryScreenState extends State<LibraryScreen> {
+  _LibraryFilter _filter = _LibraryFilter.all;
+  bool _gridView = true;
 
   @override
   Widget build(BuildContext context) {
@@ -39,82 +52,131 @@ class LibraryScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
             16,
-            14,
+            12,
             16,
             AppSpacing.bottomInset,
           ),
           children: [
             _header(context),
-            const SizedBox(height: 16),
-            _StatsRow(
-              liked: likedCount,
-              playlists: playlists.length,
-              local: localCount,
-            ),
-            const SizedBox(height: 16),
-            _LikedCard(
-              tracks: library.likedTracks,
-              onOpen: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const LikedTracksScreen(),
-                ),
-              ),
-            ),
             const SizedBox(height: 12),
-            _MyTracksCard(
-              count: localCount,
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const LocalTracksScreen(),
+            _FilterBar(
+              selected: _filter,
+              gridView: _gridView,
+              onSelect: (f) {
+                HapticFeedback.selectionClick();
+                setState(() => _filter = f);
+              },
+              onToggleView: () {
+                HapticFeedback.selectionClick();
+                setState(() => _gridView = !_gridView);
+              },
+            ),
+            const SizedBox(height: 14),
+            if (_filter == _LibraryFilter.all) ...[
+              _StatsRow(
+                liked: likedCount,
+                playlists: playlists.length,
+                local: localCount,
+              ),
+              const SizedBox(height: 14),
+              _LikedCard(
+                tracks: library.likedTracks,
+                onOpen: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const LikedTracksScreen(),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            _QuickActions(
-              onPickFiles: () => _pickFiles(context),
-              onAddUrl: () => _addByUrl(context),
-              onLink: () => showLinkDownloadSheet(context),
-            ),
-            SectionHeader(
-              title: 'Мои плейлисты',
-              subtitle: playlists.isEmpty
-                  ? 'Соберите первый плейлист'
-                  : 'Плейлистов: ${playlists.length}',
-              padding: const EdgeInsets.fromLTRB(0, 24, 0, 12),
-              action: TextButton.icon(
-                onPressed: () => _createPlaylist(context),
-                icon: const Icon(Icons.add_rounded, size: 18),
-                label: const Text('Новый'),
-              ),
-            ),
-            if (playlists.isEmpty)
-              _EmptyPlaylists(onCreate: () => _createPlaylist(context))
-            else
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                padding: EdgeInsets.zero,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  childAspectRatio: 0.74,
+              const SizedBox(height: 10),
+              _VibeShortcutCard(
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const VibeStatsScreen(),
+                  ),
                 ),
-                itemCount: playlists.length,
-                itemBuilder: (context, index) {
-                  final playlist = playlists[index];
-                  return _PlaylistCard(
-                    playlist: playlist,
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) =>
-                            PlaylistDetailsScreen(playlistId: playlist.id),
+              ),
+            ],
+            if (_filter == _LibraryFilter.all ||
+                _filter == _LibraryFilter.device) ...[
+              if (_filter == _LibraryFilter.all) const SizedBox(height: 10),
+              _MyTracksCard(
+                count: localCount,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const LocalTracksScreen(),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              _QuickActions(
+                onPickFiles: () => _pickFiles(context),
+                onAddUrl: () => _addByUrl(context),
+                onLink: () => showLinkDownloadSheet(context),
+              ),
+            ],
+            if (_filter == _LibraryFilter.all ||
+                _filter == _LibraryFilter.playlists) ...[
+              SectionHeader(
+                title: 'Мои плейлисты',
+                subtitle: playlists.isEmpty
+                    ? 'Соберите первый плейлист'
+                    : 'Плейлистов: ${playlists.length}',
+                padding: const EdgeInsets.fromLTRB(0, 22, 0, 12),
+                action: TextButton.icon(
+                  onPressed: () => _createPlaylist(context),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('Новый'),
+                ),
+              ),
+              if (playlists.isEmpty)
+                _EmptyPlaylists(onCreate: () => _createPlaylist(context))
+              else if (_gridView)
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: EdgeInsets.zero,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 0.74,
+                  ),
+                  itemCount: playlists.length,
+                  itemBuilder: (context, index) {
+                    final playlist = playlists[index];
+                    return _PlaylistCard(
+                      playlist: playlist,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              PlaylistDetailsScreen(playlistId: playlist.id),
+                        ),
                       ),
-                    ),
-                    onMore: () => _showPlaylistActions(context, playlist),
-                  );
-                },
-              ),
+                      onMore: () => _showPlaylistActions(context, playlist),
+                    );
+                  },
+                )
+              else
+                Column(
+                  children: [
+                    for (final playlist in playlists)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _PlaylistRowTile(
+                          playlist: playlist,
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => PlaylistDetailsScreen(
+                                playlistId: playlist.id,
+                              ),
+                            ),
+                          ),
+                          onMore: () => _showPlaylistActions(context, playlist),
+                        ),
+                      ),
+                  ],
+                ),
+            ],
           ],
         ),
       ),
@@ -129,13 +191,13 @@ class LibraryScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Библиотека',
+                'Медиатека',
                 style: Theme.of(context).textTheme.displaySmall,
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
               const Text(
-                'Ваша музыка, плейлисты и файлы',
-                style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                'Коллекция, плейлисты и офлайн-файлы',
+                style: TextStyle(fontSize: 12, color: AppColors.textDim),
               ),
             ],
           ),
@@ -254,8 +316,19 @@ class LibraryScreen extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              const SizedBox(height: 10),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.glassBorder,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
                 child: Row(
                   children: [
                     Expanded(
@@ -363,13 +436,74 @@ class LibraryScreen extends StatelessWidget {
   }
 }
 
+class _FilterBar extends StatelessWidget {
+  final _LibraryFilter selected;
+  final bool gridView;
+  final ValueChanged<_LibraryFilter> onSelect;
+  final VoidCallback onToggleView;
+
+  const _FilterBar({
+    required this.selected,
+    required this.gridView,
+    required this.onSelect,
+    required this.onToggleView,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final labels = {
+      _LibraryFilter.all: 'Все',
+      _LibraryFilter.playlists: 'Плейлисты',
+      _LibraryFilter.device: 'Устройство',
+    };
+
+    return Row(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final entry in labels.entries)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(entry.value),
+                      selected: selected == entry.key,
+                      showCheckmark: false,
+                      selectedColor: AppColors.accent,
+                      labelStyle: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: selected == entry.key
+                            ? Colors.black
+                            : AppColors.textDim,
+                      ),
+                      onSelected: (_) => onSelect(entry.key),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        IconButton(
+          onPressed: onToggleView,
+          icon: Icon(
+            gridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
+            size: 21,
+          ),
+          color: AppColors.textDim,
+          tooltip: gridView ? 'Вид списком' : 'Вид сеткой',
+        ),
+      ],
+    );
+  }
+}
+
 class _HeaderIconButton extends StatelessWidget {
   final IconData icon;
-
   final String tooltip;
-
   final VoidCallback onTap;
-
   final bool accent;
 
   const _HeaderIconButton({
@@ -382,13 +516,13 @@ class _HeaderIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 42,
-      height: 42,
+      width: 40,
+      height: 40,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: accent ? AppColors.accent : AppColors.surfaceRaised,
         border: Border.all(
-          color: accent ? AppColors.accentBright : AppColors.stroke,
+          color: accent ? AppColors.accentBright : AppColors.glassBorder,
         ),
       ),
       child: IconButton(
@@ -405,9 +539,7 @@ class _HeaderIconButton extends StatelessWidget {
 
 class _StatsRow extends StatelessWidget {
   final int liked;
-
   final int playlists;
-
   final int local;
 
   const _StatsRow({
@@ -420,17 +552,11 @@ class _StatsRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(
-          child: _Stat(value: liked, label: 'лайков'),
-        ),
+        Expanded(child: _Stat(value: liked, label: 'лайков')),
         const SizedBox(width: 8),
-        Expanded(
-          child: _Stat(value: playlists, label: 'плейлистов'),
-        ),
+        Expanded(child: _Stat(value: playlists, label: 'плейлистов')),
         const SizedBox(width: 8),
-        Expanded(
-          child: _Stat(value: local, label: 'файлов'),
-        ),
+        Expanded(child: _Stat(value: local, label: 'файлов')),
       ],
     );
   }
@@ -438,7 +564,6 @@ class _StatsRow extends StatelessWidget {
 
 class _Stat extends StatelessWidget {
   final int value;
-
   final String label;
 
   const _Stat({required this.value, required this.label});
@@ -474,7 +599,6 @@ class _Stat extends StatelessWidget {
 
 class _LikedCard extends StatelessWidget {
   final List<Track> tracks;
-
   final VoidCallback onOpen;
 
   const _LikedCard({required this.tracks, required this.onOpen});
@@ -555,7 +679,7 @@ class _LikedCard extends StatelessWidget {
                     const Text(
                       'Слушать',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 12.5,
                         fontWeight: FontWeight.w700,
                         color: AppColors.text,
                       ),
@@ -571,9 +695,76 @@ class _LikedCard extends StatelessWidget {
   }
 }
 
+class _VibeShortcutCard extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _VibeShortcutCard({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      onTap: onTap,
+      borderRadius: AppRadii.lgAll,
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          AppColors.forestMid.withValues(alpha: 0.45),
+          AppColors.surfaceRaised,
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.accentSoft(0.22),
+            ),
+            child: const Icon(
+              Icons.auto_awesome_rounded,
+              size: 20,
+              color: AppColors.accentBright,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Мой вайб · Replay',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.text,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Топ-исполнители, повторы и история',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11.5, color: AppColors.textDim),
+                ),
+              ],
+            ),
+          ),
+          const Icon(
+            Icons.chevron_right_rounded,
+            size: 20,
+            color: AppColors.textMuted,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _MyTracksCard extends StatelessWidget {
   final int count;
-
   final VoidCallback onTap;
 
   const _MyTracksCard({required this.count, required this.onTap});
@@ -620,7 +811,7 @@ class _MyTracksCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 11,
+                    fontSize: 11.5,
                     color: AppColors.textDim,
                   ),
                 ),
@@ -640,9 +831,7 @@ class _MyTracksCard extends StatelessWidget {
 
 class _QuickActions extends StatelessWidget {
   final VoidCallback onPickFiles;
-
   final VoidCallback onAddUrl;
-
   final VoidCallback onLink;
 
   const _QuickActions({
@@ -686,11 +875,8 @@ class _QuickActions extends StatelessWidget {
 
 class _ActionTile extends StatelessWidget {
   final IconData icon;
-
   final String label;
-
   final VoidCallback onTap;
-
   final bool accent;
 
   const _ActionTile({
@@ -733,11 +919,74 @@ class _ActionTile extends StatelessWidget {
   }
 }
 
+class _PlaylistRowTile extends StatelessWidget {
+  final Playlist playlist;
+  final VoidCallback onTap;
+  final VoidCallback onMore;
+
+  const _PlaylistRowTile({
+    required this.playlist,
+    required this.onTap,
+    required this.onMore,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final urls = <String?>[
+      for (final track in playlist.tracks.take(4)) track.artworkUrl,
+    ];
+
+    return AppCard(
+      onTap: onTap,
+      borderRadius: AppRadii.lgAll,
+      padding: const EdgeInsets.all(10),
+      child: Row(
+        children: [
+          _ArtworkMosaic(
+            size: 56,
+            urls: urls,
+            fallbackIcon: Icons.queue_music_rounded,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  playlist.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.text,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  trackCountLabel(playlist.trackCount),
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: AppColors.textDim,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onMore,
+            icon: const Icon(Icons.more_vert_rounded, size: 20),
+            color: AppColors.textMuted,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PlaylistCard extends StatelessWidget {
   final Playlist playlist;
-
   final VoidCallback onTap;
-
   final VoidCallback onMore;
 
   const _PlaylistCard({
@@ -821,9 +1070,7 @@ class _PlaylistCard extends StatelessWidget {
 
 class _ArtworkMosaic extends StatelessWidget {
   final double size;
-
   final List<String?> urls;
-
   final IconData fallbackIcon;
 
   const _ArtworkMosaic({
@@ -838,7 +1085,7 @@ class _ArtworkMosaic extends StatelessWidget {
       return Container(
         width: size,
         height: size,
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: AppColors.accentGradient,
           borderRadius: AppRadii.mdAll,
         ),

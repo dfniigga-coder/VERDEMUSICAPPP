@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:ffmpeg_kit_flutter_new_audio/ffmpeg_kit.dart';
@@ -6,8 +7,10 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import '../data/models/lyrics.dart';
 import '../data/models/track.dart';
 import '../data/repositories/local_tracks_repository.dart';
+import 'lyrics_service.dart';
 import 'media_store.dart';
 import 'youtube_link.dart';
 import 'youtube_service.dart';
@@ -19,13 +22,13 @@ extension DownloadStageInfo on DownloadStage {
   String get label {
     switch (this) {
       case DownloadStage.resolving:
-        return 'Ищем трек на YouTube…';
+        return 'Ищем трек на YouTube Music…';
       case DownloadStage.downloading:
-        return 'Скачиваем аудио…';
+        return 'Скачиваем аудио и лирику…';
       case DownloadStage.converting:
-        return 'Конвертируем в MP3…';
+        return 'Конвертируем в MP3 + теги и лирика…';
       case DownloadStage.saving:
-        return 'Сохраняем в Music/Verde…';
+        return 'Сохраняем MP3 и файл лирики…';
       case DownloadStage.done:
         return 'Готово';
       case DownloadStage.failed:
@@ -40,6 +43,9 @@ extension DownloadStageInfo on DownloadStage {
 class DownloadResult {
   final String localPath;
   final String? publicPath;
+  final String? lyricsPath;
+  final bool hasLyrics;
+  final bool hasSyncedLyrics;
   final String title;
   final String artist;
   final int? durationSec;
@@ -48,6 +54,9 @@ class DownloadResult {
   const DownloadResult({
     required this.localPath,
     required this.publicPath,
+    this.lyricsPath,
+    this.hasLyrics = false,
+    this.hasSyncedLyrics = false,
     required this.title,
     required this.artist,
     this.durationSec,
@@ -55,20 +64,23 @@ class DownloadResult {
   });
 }
 
-/// Скачивает трек с YouTube, конвертирует аудио в MP3 и сохраняет его
-/// в Music/Verde и в «Мои треки».
+/// Скачивает трек с YouTube Music, находит лирику, конвертирует аудио в MP3
+/// (с обложкой и тегом лирики) и сохраняет `.mp3` + `.lrc` в Music/Verde.
 class Mp3DownloadService {
   Mp3DownloadService({
     required YoutubeService youtube,
     required LocalTracksRepository localTracks,
+    LyricsService? lyrics,
     http.Client? httpClient,
   }) : _youtube = youtube,
        _localTracks = localTracks,
+       _lyrics = lyrics,
        _ownsHttpClient = httpClient == null,
        _http = httpClient ?? http.Client();
 
   final YoutubeService _youtube;
   final LocalTracksRepository _localTracks;
+  final LyricsService? _lyrics;
   final bool _ownsHttpClient;
   final http.Client _http;
 
@@ -77,9 +89,6 @@ class Mp3DownloadService {
 
   /// Разбирает ссылку YouTube Music / YouTube и возвращает трек
   /// с настоящими названием, исполнителем и обложкой.
-  ///
-  /// Скачивание после этого идёт через [download]: видео уже известно,
-  /// поэтому повторный поиск не выполняется.
   Future<Track> resolveLink(String input) async {
     final link = YoutubeLink.parse(input);
     if (link == null) {
@@ -132,11 +141,8 @@ class Mp3DownloadService {
       match = await _youtube.findBest(
         track.title,
         track.artist,
-        // У превью Deezer/iTunes длительность всегда 30 секунд — по ней
-        // нельзя выбирать полную версию на YouTube. Заодно отсекаем
-        // короткие Shorts: для MP3 нужен именно полный трек.
         durationSec: track.isPreview ? null : track.durationSec,
-        minDurationSec: track.isPreview ? 60 : 20,
+        minDurationSec: track.isPreview ? 60 : 45,
         preferredVideoId: track.source == TrackSource.youtube
             ? track.externalId
             : null,
@@ -144,13 +150,13 @@ class Mp3DownloadService {
     } catch (error) {
       debugPrint('Mp3DownloadService: search failed: $error');
       throw const DownloadException(
-        'Не удалось найти трек на YouTube. Проверьте соединение.',
+        'Не удалось найти трек на YouTube Music. Проверьте соединение.',
       );
     }
 
     if (match == null) {
       throw const DownloadException(
-        'Трек не найден на YouTube. Попробуйте изменить запрос.',
+        'Трек не найден на YouTube Music. Попробуйте изменить запрос.',
       );
     }
 
@@ -168,8 +174,20 @@ class Mp3DownloadService {
         'Неизвестный исполнитель',
       );
       final artworkUrl = track.artworkUrl ?? match.artworkUrl;
+      final effectiveDuration = track.isPreview
+          ? match.durationSec
+          : (track.durationSec ?? match.durationSec);
 
       onProgress(DownloadStage.downloading, 0);
+
+      // Лирику и обложку загружаем параллельно со скачиванием аудиодорожки.
+      final lyricsFuture = _fetchLyricsQuietly(
+        track,
+        title: title,
+        artist: artist,
+        durationSec: effectiveDuration,
+      );
+      final coverFuture = _downloadCover(artworkUrl, tempDir);
 
       try {
         sourceFile = await _youtube.downloadAudio(
@@ -198,15 +216,33 @@ class Mp3DownloadService {
       rawMp3 = File('${outputFile.path}.raw.mp3');
       await _deleteQuietly(rawMp3);
 
-      // Обложку качаем, пока идёт конвертация. Это скрывает задержку сети.
-      final coverFuture = _downloadCover(artworkUrl, tempDir);
+      final lyrics = await lyricsFuture;
+      final lrcContent = lyrics?.toLrcString(
+        fallbackTitle: title,
+        fallbackArtist: artist,
+      );
+      final embeddedLyrics =
+          (lyrics?.plainText?.trim().isNotEmpty ?? false)
+              ? lyrics!.plainText!.trim()
+              : lrcContent;
 
-      final converted = await _convertToMp3(
+      var converted = await _convertToMp3(
         sourceFile,
         rawMp3,
         title: title,
         artist: artist,
+        lyrics: embeddedLyrics,
       );
+      // Если FFmpeg не принял длинный тег lyrics, повторяем без него —
+      // сама лирика всё равно сохранится в .lrc рядом с файлом.
+      if (!converted && embeddedLyrics != null) {
+        converted = await _convertToMp3(
+          sourceFile,
+          rawMp3,
+          title: title,
+          artist: artist,
+        );
+      }
       if (!converted || !await rawMp3.exists()) {
         throw const DownloadException(
           'Не удалось конвертировать трек в MP3. Попробуйте ещё раз.',
@@ -215,17 +251,26 @@ class Mp3DownloadService {
 
       coverFile = await coverFuture;
       if (coverFile != null) {
-        final withCover = await _attachCover(
+        var withCover = await _attachCover(
           rawMp3,
           coverFile,
           outputFile,
           title: title,
           artist: artist,
+          lyrics: embeddedLyrics,
         );
+        if (!withCover && embeddedLyrics != null) {
+          withCover = await _attachCover(
+            rawMp3,
+            coverFile,
+            outputFile,
+            title: title,
+            artist: artist,
+          );
+        }
         if (withCover) {
           await _deleteQuietly(rawMp3);
         } else {
-          // Битая обложка не должна ломать скачивание: оставляем MP3 без неё.
           await _deleteQuietly(outputFile);
           await rawMp3.rename(outputFile.path);
         }
@@ -240,6 +285,17 @@ class Mp3DownloadService {
       }
 
       onProgress(DownloadStage.saving, null);
+
+      String? savedLyricsPath;
+      if (lrcContent != null && lrcContent.isNotEmpty) {
+        try {
+          final lrcFile = File(LyricsService.sidecarLrcPath(outputFile.path));
+          await lrcFile.writeAsString(lrcContent, encoding: utf8, flush: true);
+          savedLyricsPath = lrcFile.path;
+        } catch (error) {
+          debugPrint('Mp3DownloadService: lrc write failed: $error');
+        }
+      }
 
       String? publicPath;
       try {
@@ -257,9 +313,7 @@ class Mp3DownloadService {
         path: outputFile.path,
         title: title,
         artist: artist,
-        durationSec: track.isPreview
-            ? match.durationSec
-            : (track.durationSec ?? match.durationSec),
+        durationSec: effectiveDuration,
         artworkUrl: artworkUrl,
       );
 
@@ -267,11 +321,12 @@ class Mp3DownloadService {
       return DownloadResult(
         localPath: outputFile.path,
         publicPath: publicPath,
+        lyricsPath: savedLyricsPath,
+        hasLyrics: lyrics != null && lyrics.hasText,
+        hasSyncedLyrics: lyrics?.hasSynced ?? false,
         title: title,
         artist: artist,
-        durationSec: track.isPreview
-            ? match.durationSec
-            : (track.durationSec ?? match.durationSec),
+        durationSec: effectiveDuration,
         artworkUrl: artworkUrl,
       );
     } finally {
@@ -281,11 +336,38 @@ class Mp3DownloadService {
     }
   }
 
+  Future<Lyrics?> _fetchLyricsQuietly(
+    Track original, {
+    required String title,
+    required String artist,
+    int? durationSec,
+  }) async {
+    final lyricsService = _lyrics;
+    if (lyricsService == null) return null;
+
+    try {
+      final queryTrack = original.copyWith(
+        title: title,
+        artist: artist,
+        durationSec: durationSec,
+      );
+      final found = await lyricsService
+          .fetch(queryTrack)
+          .timeout(const Duration(seconds: 7), onTimeout: () => null);
+      if (found == null || !found.hasText) return null;
+      return found;
+    } catch (error) {
+      debugPrint('Mp3DownloadService: lyrics fetch failed: $error');
+      return null;
+    }
+  }
+
   Future<bool> _convertToMp3(
     File input,
     File output, {
     required String title,
     required String artist,
+    String? lyrics,
   }) async {
     if (await output.exists()) {
       await _deleteQuietly(output);
@@ -304,8 +386,6 @@ class Mp3DownloadService {
       'libmp3lame',
       '-b:a',
       '192k',
-      // 0 — самый быстрый режим LAME. При фиксированных 192 kbit/s
-      // качество не меняется, а конвертация идёт заметно быстрее.
       '-compression_level',
       '0',
       '-map_metadata',
@@ -318,6 +398,10 @@ class Mp3DownloadService {
       'artist=$artist',
       '-metadata',
       'album=Verde',
+      if (lyrics != null && lyrics.isNotEmpty) ...[
+        '-metadata',
+        'lyrics=$lyrics',
+      ],
       output.path,
     ];
 
@@ -341,17 +425,13 @@ class Mp3DownloadService {
     }
   }
 
-  /// Прикрепляет обложку отдельным быстрым проходом.
-  ///
-  /// Если подмешивать картинку во время перекодирования, FFmpeg размножает
-  /// один кадр обложки на всю длительность трека. На телефоне это занимает
-  /// до минуты. Копирование готового MP3 с обложкой — доли секунды.
   Future<bool> _attachCover(
     File audio,
     File cover,
     File output, {
     required String title,
     required String artist,
+    String? lyrics,
   }) async {
     if (await output.exists()) {
       await _deleteQuietly(output);
@@ -382,6 +462,10 @@ class Mp3DownloadService {
       'artist=$artist',
       '-metadata',
       'album=Verde',
+      if (lyrics != null && lyrics.isNotEmpty) ...[
+        '-metadata',
+        'lyrics=$lyrics',
+      ],
       '-metadata:s:v',
       'title=Album cover',
       '-metadata:s:v',

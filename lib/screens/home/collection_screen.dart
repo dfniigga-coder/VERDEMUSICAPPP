@@ -8,12 +8,12 @@ import '../../data/models/collection.dart';
 import '../../data/models/track.dart';
 import '../../data/repositories/music_repository.dart';
 import '../../providers/player_provider.dart';
-import '../../widgets/app_card.dart';
 import '../../widgets/artwork.dart';
 import '../../widgets/common.dart';
+import '../../widgets/track_menu.dart';
 import '../../widgets/track_tile.dart';
 
-/// Содержимое подборки Audius (плейлист из раздела «Подборки»).
+/// Содержимое подборки Audius с editorial-шапкой.
 class CollectionScreen extends StatefulWidget {
   final Collection collection;
 
@@ -107,6 +107,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
         return TrackTile(
           track: track,
           onTap: () => _play(tracks, trackIndex),
+          onLongPress: () => showTrackMenu(context, track: track),
           trailing: LikeButton(track: track),
         );
       },
@@ -115,90 +116,106 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
   Widget _header(Collection collection, List<Track> tracks) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
-      child: AppCard(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.accentDeep.withValues(alpha: 0.5),
-            AppColors.surfaceRaised,
-          ],
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 14),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: AppRadii.xlAll,
+          border: Border.all(color: AppColors.glassBorder),
+          boxShadow: AppShadows.card,
         ),
-        borderRadius: AppRadii.xlAll,
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            ArtworkView(
-              size: 112,
-              url: collection.artworkUrl,
-              borderRadius: AppRadii.mdAll,
-              placeholderIcon: Icons.queue_music_rounded,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'ПОДБОРКА',
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.3,
-                      color: AppColors.accentBright,
+        child: ArtworkBackdrop(
+          url: collection.artworkUrl,
+          blur: 32,
+          overlayColor: AppColors.forestDark.withValues(alpha: 0.56),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.transparent,
+              AppColors.background.withValues(alpha: 0.9),
+            ],
+          ),
+          borderRadius: AppRadii.xlAll,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: AppRadii.lgAll,
+                    boxShadow: AppShadows.artwork,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.16),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    collection.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 19,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.4,
-                      height: 1.2,
-                      color: AppColors.text,
-                    ),
+                  child: ArtworkView(
+                    size: 132,
+                    url: collection.artworkUrl,
+                    borderRadius: AppRadii.lgAll,
+                    placeholderIcon: Icons.queue_music_rounded,
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    trackCountLabel(tracks.length),
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      color: AppColors.textDim,
-                    ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'ПОДБОРКА',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.4,
+                    color: AppColors.accentBright,
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      FilledButton.icon(
-                        onPressed: tracks.isEmpty
-                            ? null
-                            : () => _play(tracks, 0),
-                        icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  collection.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    height: 1.2,
+                    color: AppColors.text,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  trackCountLabel(tracks.length),
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: AppColors.textDim,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed:
+                            tracks.isEmpty ? null : () => _play(tracks, 0),
+                        icon: const Icon(Icons.play_arrow_rounded, size: 21),
                         label: const Text('Слушать'),
                       ),
-                      const SizedBox(width: 8),
-                      IconButton(
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
                         onPressed: tracks.isEmpty
                             ? null
                             : () => _playTracksShuffled(tracks),
-                        icon: const Icon(Icons.shuffle_rounded, size: 20),
-                        color: AppColors.text,
-                        style: IconButton.styleFrom(
+                        style: OutlinedButton.styleFrom(
                           backgroundColor: Colors.white.withValues(alpha: 0.08),
-                          shape: const CircleBorder(),
                         ),
-                        tooltip: 'Перемешать',
+                        icon: const Icon(Icons.shuffle_rounded, size: 19),
+                        label: const Text('Перемешать'),
                       ),
-                    ],
-                  ),
-                ],
-              ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

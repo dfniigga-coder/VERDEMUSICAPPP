@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/design_tokens.dart';
@@ -8,12 +9,17 @@ import '../core/utils/formatters.dart';
 import '../data/models/track.dart';
 import '../providers/library_provider.dart';
 import '../providers/player_provider.dart';
+import 'app_card.dart';
 import 'artwork.dart';
+import 'common.dart';
 import 'dialogs.dart';
 import 'download_sheet.dart';
 import 'full_track_button.dart';
+import 'lyrics_sheet.dart';
+import 'source_badge.dart';
 
-/// Bottom-меню действий над треком: очередь, лайк, плейлисты.
+/// Bottom-меню действий над треком в стиле Apple Music iOS 18:
+/// быстрые плитки «Далее», «В очередь», «Волна трека» и список опций.
 Future<void> showTrackMenu(
   BuildContext context, {
   required Track track,
@@ -24,135 +30,272 @@ Future<void> showTrackMenu(
 
   await showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
+    backgroundColor: AppColors.surface,
     builder: (sheetContext) {
       void sendSnack(String message) {
         messenger.showSnackBar(SnackBar(content: Text(message)));
       }
 
       final isLiked = sheetContext.read<LibraryProvider>().isLiked(track);
+      final duration = track.durationSec == null
+          ? null
+          : formatDuration(Duration(seconds: track.durationSec!));
+
       return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              child: Row(
-                children: [
-                  ArtworkView(size: 44, url: track.artworkUrl),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          track.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        Text(
-                          track.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.textDim,
-                            fontSize: 12,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.glassBorder,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              AppCard(
+                borderRadius: AppRadii.lgAll,
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    ArtworkView(
+                      size: 54,
+                      url: track.artworkUrl,
+                      borderRadius: AppRadii.smAll,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            track.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                              color: AppColors.text,
+                            ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 2),
+                          Text(
+                            duration == null
+                                ? track.artist
+                                : '${track.artist} · $duration',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.textDim,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                          if (track.source != TrackSource.local) ...[
+                            const SizedBox(height: 5),
+                            TrackSourceBadge(track: track),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _QuickMenuAction(
+                      icon: Icons.playlist_play_rounded,
+                      label: 'Далее',
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        navigator.pop();
+                        sheetContext.read<PlayerProvider>().playNext(track);
+                        sendSnack('«${track.title}» будет следующим');
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _QuickMenuAction(
+                      icon: Icons.queue_music_rounded,
+                      label: 'В очередь',
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        navigator.pop();
+                        sheetContext.read<PlayerProvider>().addToQueue(track);
+                        sendSnack('Добавлено в очередь');
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _QuickMenuAction(
+                      icon: Icons.podcasts_rounded,
+                      label: 'Волна',
+                      accent: true,
+                      onTap: () async {
+                        HapticFeedback.selectionClick();
+                        final player = sheetContext.read<PlayerProvider>();
+                        navigator.pop();
+                        if (context.mounted) {
+                          showAppSnackBar(
+                            context,
+                            'Собираем волну по треку…',
+                          );
+                        }
+                        await player.startTrackRadio(track);
+                      },
                     ),
                   ),
                 ],
               ),
-            ),
-            if (track.isPreview)
+              const SizedBox(height: 10),
+              if (track.isPreview)
+                ListTile(
+                  leading: const Icon(
+                    Icons.play_circle_outline_rounded,
+                    color: AppColors.accentBright,
+                  ),
+                  title: const Text('Слушать полностью'),
+                  subtitle: const Text(
+                    'SoundCloud / YouTube',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  onTap: () {
+                    navigator.pop();
+                    playFullTrack(context, track);
+                  },
+                ),
               ListTile(
-                leading: const Icon(
-                  Icons.play_circle_outline,
-                  color: AppColors.accentBright,
-                ),
-                title: const Text('Слушать полностью'),
-                subtitle: const Text(
-                  'SoundCloud / YouTube',
-                  style: TextStyle(fontSize: 12),
-                ),
-                onTap: () {
-                  navigator.pop();
-                  playFullTrack(context, track);
-                },
-              ),
-            if (!track.isLocal)
-              ListTile(
-                leading: const Icon(Icons.download_for_offline_outlined),
-                title: const Text('Скачать MP3'),
-                subtitle: const Text(
-                  'YouTube → MP3, в Music/Verde и «Мои треки»',
-                  style: TextStyle(fontSize: 12),
-                ),
-                onTap: () {
-                  navigator.pop();
-                  unawaited(startDownloadWithSheet(context, track));
-                },
-              ),
-            ListTile(
-              leading: const Icon(Icons.playlist_play),
-              title: const Text('Слушать следующим'),
-              onTap: () {
-                navigator.pop();
-                sheetContext.read<PlayerProvider>().playNext(track);
-                sendSnack('«${track.title}» будет следующим');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.queue),
-              title: const Text('Добавить в очередь'),
-              onTap: () {
-                navigator.pop();
-                sheetContext.read<PlayerProvider>().addToQueue(track);
-                sendSnack('Добавлено в очередь');
-              },
-            ),
-            ListTile(
-              leading: Icon(
-                isLiked ? Icons.favorite : Icons.favorite_border_rounded,
-                color: isLiked ? AppColors.accentBright : null,
-              ),
-              title: Text(
-                isLiked ? 'Убрать из «Мне нравится»' : 'В «Мне нравится»',
-              ),
-              onTap: () {
-                navigator.pop();
-                sheetContext.read<LibraryProvider>().toggleLike(track);
-                sendSnack(
+                leading: Icon(
                   isLiked
-                      ? 'Убрано из «Мне нравится»'
-                      : 'Добавлено в «Мне нравится»',
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.playlist_add),
-              title: const Text('Добавить в плейлист…'),
-              onTap: () {
-                navigator.pop();
-                showAddToPlaylistSheet(context, track);
-              },
-            ),
-            if (onRemoved != null)
-              ListTile(
-                leading: const Icon(Icons.playlist_remove),
-                title: const Text('Убрать из плейлиста'),
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_border_rounded,
+                  color: isLiked ? AppColors.accentBright : null,
+                ),
+                title: Text(
+                  isLiked
+                      ? 'Убрать из «Понравившихся»'
+                      : 'В «Понравившиеся»',
+                ),
                 onTap: () {
                   navigator.pop();
-                  onRemoved();
+                  sheetContext.read<LibraryProvider>().toggleLike(track);
+                  sendSnack(
+                    isLiked
+                        ? 'Убрано из «Понравившихся»'
+                        : 'Добавлено в «Понравившиеся»',
+                  );
                 },
               ),
-            const SizedBox(height: 8),
-          ],
+              ListTile(
+                leading: const Icon(Icons.playlist_add_rounded),
+                title: const Text('Добавить в плейлист…'),
+                onTap: () {
+                  navigator.pop();
+                  showAddToPlaylistSheet(context, track);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.lyrics_rounded),
+                title: const Text('Текст песни'),
+                onTap: () {
+                  navigator.pop();
+                  showLyricsSheet(context, track);
+                },
+              ),
+              if (!track.isLocal)
+                ListTile(
+                  leading: const Icon(Icons.download_for_offline_outlined),
+                  title: const Text('Скачать MP3 + лирику'),
+                  subtitle: const Text(
+                    'YouTube Music → MP3 + текст (.lrc)',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  onTap: () {
+                    navigator.pop();
+                    unawaited(startDownloadWithSheet(context, track));
+                  },
+                ),
+              if (onRemoved != null)
+                ListTile(
+                  leading: const Icon(
+                    Icons.playlist_remove_rounded,
+                    color: AppColors.deleteRed,
+                  ),
+                  title: const Text(
+                    'Убрать из плейлиста',
+                    style: TextStyle(color: AppColors.deleteRed),
+                  ),
+                  onTap: () {
+                    navigator.pop();
+                    onRemoved();
+                  },
+                ),
+            ],
+          ),
         ),
       );
     },
   );
+}
+
+class _QuickMenuAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool accent;
+
+  const _QuickMenuAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.accent = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      onTap: onTap,
+      borderRadius: AppRadii.mdAll,
+      gradient: accent
+          ? LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [AppColors.accentSoft(0.24), AppColors.surfaceRaised],
+            )
+          : null,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 22,
+            color: accent ? AppColors.accentBright : AppColors.text,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: accent ? AppColors.accentBright : AppColors.textDim,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Выбор плейлиста для добавления трека.
@@ -171,7 +314,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Track track) async {
               SnackBar(
                 content: Text(
                   added
-                      ? 'Добавлено в "$playlistName"'
+                      ? 'Добавлено в «$playlistName»'
                       : 'Трек уже есть в плейлисте',
                 ),
               ),
@@ -180,19 +323,33 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Track track) async {
 
           return SafeArea(
             child: SizedBox(
-              height: 420,
+              height: 430,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const SizedBox(height: 10),
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.glassBorder,
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                  ),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
                     child: Text(
                       'Добавить в плейлист',
-                      style: Theme.of(innerContext).textTheme.titleMedium,
+                      style: Theme.of(innerContext).textTheme.titleLarge,
                     ),
                   ),
                   ListTile(
-                    leading: const Icon(Icons.add),
+                    leading: const Icon(
+                      Icons.add_circle_outline_rounded,
+                      color: AppColors.accentBright,
+                    ),
                     title: const Text('Новый плейлист'),
                     onTap: () async {
                       final name = await showTextDialog(
@@ -228,7 +385,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Track track) async {
                               final playlist = playlists[index];
                               final already = playlist.contains(track);
                               return ListTile(
-                                leading: const Icon(Icons.queue_music),
+                                leading: const Icon(Icons.queue_music_rounded),
                                 title: Text(playlist.name),
                                 subtitle: Text(
                                   trackCountLabel(playlist.trackCount),
@@ -236,7 +393,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Track track) async {
                                 ),
                                 trailing: already
                                     ? const Icon(
-                                        Icons.check,
+                                        Icons.check_rounded,
                                         color: AppColors.accentBright,
                                       )
                                     : null,

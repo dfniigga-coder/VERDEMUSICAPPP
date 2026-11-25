@@ -33,7 +33,7 @@ extension TrackSourceInfo on TrackSource {
       case TrackSource.soundcloud:
         return 'SoundCloud (полный)';
       case TrackSource.youtube:
-        return 'YouTube (полный)';
+        return 'YT Music';
     }
   }
 }

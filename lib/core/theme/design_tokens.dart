@@ -1,28 +1,33 @@
 import 'package:flutter/material.dart';
 
-/// Палитра Verde «Deep Forest 2.0».
-///
-/// Тёмный графит с зелёным подтоном, три уровня поверхностей и мягкий
-/// акцент вместо чистого чёрного. Все экраны используют эти токены,
-/// чтобы редизайн оставался цельным.
+/// Палитра Verde «Liquid Forest Glass» — эстетика Apple Music iOS 18 и Spotify
+/// в глубокой тёмно-зелёной и изумрудной палитре.
 class AppColors {
   AppColors._();
 
-  static const Color background = Color(0xFF070A08);
-  static const Color surface = Color(0xFF0D120F);
-  static const Color surfaceRaised = Color(0xFF131A16);
-  static const Color surfaceHigh = Color(0xFF1A231D);
+  static const Color background = Color(0xFF050806);
+  static const Color surface = Color(0xFF0A100D);
+  static const Color surfaceRaised = Color(0xFF101914);
+  static const Color surfaceHigh = Color(0xFF17241C);
+
+  // Токены жидкого стекла и тёмного леса.
+  static const Color forestDark = Color(0xFF0A3820);
+  static const Color forestMid = Color(0xFF0F5430);
+  static const Color glassSurface = Color(0xB8101914);
+  static const Color glassBorder = Color(0x22FFFFFF);
+  static const Color glassHighlight = Color(0x30FFFFFF);
 
   /// Тонкая граница вместо тяжёлых теней.
-  static const Color stroke = Color(0x12FFFFFF);
+  static const Color stroke = Color(0x16FFFFFF);
+  static const Color strokeSoft = Color(0x0EFFFFFF);
 
   static const Color accent = Color(0xFF1DB954);
-  static const Color accentBright = Color(0xFF3DE27F);
-  static const Color accentDeep = Color(0xFF0E9F52);
+  static const Color accentBright = Color(0xFF4AE88A);
+  static const Color accentDeep = Color(0xFF0D8A47);
 
-  static const Color text = Color(0xFFEDF3EF);
-  static const Color textDim = Color(0xFF9AA79F);
-  static const Color textMuted = Color(0xFF66736B);
+  static const Color text = Color(0xFFF2F7F4);
+  static const Color textDim = Color(0xFFA3B3AA);
+  static const Color textMuted = Color(0xFF6A7A71);
 
   static const Color warning = Color(0xFFF0C674);
   static const Color error = Color(0xFFFF6B6B);
@@ -38,18 +43,30 @@ class AppColors {
     colors: [accentBright, accent, accentDeep],
   );
 
+  static const LinearGradient forestHeroGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF125A34), Color(0xFF09311C), Color(0xFF07150D)],
+  );
+
+  static const LinearGradient liquidGlassGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0x22FFFFFF), Color(0x06FFFFFF), Color(0x0A1DB954)],
+  );
+
   /// Затемнение поверх размытой обложки в плеере.
   static const LinearGradient playerScrim = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [Color(0xB3070A08), Color(0xF2070A08), Color(0xFF070A08)],
+    colors: [Color(0x99050806), Color(0xD8050806), Color(0xFA050806)],
     stops: [0.0, 0.55, 1.0],
   );
 
   static const LinearGradient cardSheen = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0x1F3DE27F), Color(0x00070A08)],
+    colors: [Color(0x244AE88A), Color(0x00050806)],
   );
 }
 
@@ -66,7 +83,7 @@ class AppSpacing {
   static const double huge = 32;
 
   /// Отступ под плавающую навигацию + мини-плеер.
-  static const double bottomInset = 168;
+  static const double bottomInset = 176;
 
   /// Отступ для экранов без нижней навигации.
   static const double pageBottom = 32;
@@ -75,7 +92,7 @@ class AppSpacing {
 class AppRadii {
   AppRadii._();
 
-  static const double sm = 10;
+  static const double sm = 12;
   static const double md = 16;
   static const double lg = 22;
   static const double xl = 28;
@@ -91,8 +108,8 @@ class AppDurations {
   AppDurations._();
 
   static const Duration fast = Duration(milliseconds: 160);
-  static const Duration normal = Duration(milliseconds: 220);
-  static const Duration slow = Duration(milliseconds: 320);
+  static const Duration normal = Duration(milliseconds: 240);
+  static const Duration slow = Duration(milliseconds: 360);
 }
 
 class AppShadows {
@@ -100,16 +117,30 @@ class AppShadows {
 
   static List<BoxShadow> get card => [
     BoxShadow(
-      color: Colors.black.withValues(alpha: 0.35),
-      blurRadius: 24,
-      offset: const Offset(0, 12),
+      color: Colors.black.withValues(alpha: 0.42),
+      blurRadius: 28,
+      offset: const Offset(0, 14),
+    ),
+  ];
+
+  static List<BoxShadow> get floatingBar => [
+    BoxShadow(
+      color: Colors.black.withValues(alpha: 0.55),
+      blurRadius: 32,
+      spreadRadius: -4,
+      offset: const Offset(0, 14),
+    ),
+    BoxShadow(
+      color: AppColors.accent.withValues(alpha: 0.08),
+      blurRadius: 20,
+      offset: const Offset(0, 4),
     ),
   ];
 
   static List<BoxShadow> get glow => [
     BoxShadow(
-      color: AppColors.accent.withValues(alpha: 0.28),
-      blurRadius: 26,
+      color: AppColors.accent.withValues(alpha: 0.34),
+      blurRadius: 28,
       spreadRadius: 1,
       offset: const Offset(0, 10),
     ),
@@ -117,9 +148,19 @@ class AppShadows {
 
   static List<BoxShadow> get artwork => [
     BoxShadow(
-      color: Colors.black.withValues(alpha: 0.5),
-      blurRadius: 36,
-      offset: const Offset(0, 20),
+      color: Colors.black.withValues(alpha: 0.6),
+      blurRadius: 42,
+      spreadRadius: -4,
+      offset: const Offset(0, 24),
+    ),
+  ];
+
+  static List<BoxShadow> get artworkPaused => [
+    BoxShadow(
+      color: Colors.black.withValues(alpha: 0.35),
+      blurRadius: 20,
+      spreadRadius: -6,
+      offset: const Offset(0, 10),
     ),
   ];
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -76,9 +77,12 @@ class YoutubeService {
 
   /// Короткие Shorts и бесконечные эфиры/монтажи отбрасываются, но длинные
   /// музыкальные вещи (сюиты, живые джемы) остаются доступными.
-  static const int _minDurationSec = 20;
+  static const int _minDurationSec = 45;
   static const int _maxDurationSec = 60 * 60;
   static const Duration _manifestTimeout = Duration(seconds: 15);
+  static const String _ytMusicSearchUrl =
+      'https://music.youtube.com/youtubei/v1/search?prettyPrint=false';
+  static const String _ytMusicSongsParams = 'EgWKAQIIAWoMEAMQBBAJEAoQBRAV';
 
   /// Таймауты скачивания аудио. Длинный таймаут здесь опасен: при
   /// заблокированном googlevideo прогресс просто стоит на нуле.
@@ -167,11 +171,12 @@ class YoutubeService {
 
   bool _disposed = false;
 
-  /// Поиск YouTube, результат уже в форме [Track].
+  /// Поиск только полных треков через YouTube Music (с резервом на YouTube).
   ///
-  /// Живые трансляции, короткие Shorts и многоминутные миксы отбрасываются:
-  /// для музыкального поиска они только мешают.
-  Future<List<Track>> searchTracks(String query, {int limit = 10}) async {
+  /// Сначала запрашивает YouTube Music (`WEB_REMIX`, фильтр «Песни»), чтобы
+  /// получать студийные треки без видеоклипов, Shorts и трансляций. При сбое
+  /// переходит на `YoutubeExplode` с жёсткой фильтрацией под аудио-треки.
+  Future<List<Track>> searchTracks(String query, {int limit = 20}) async {
     final q = query.trim();
     if (q.isEmpty) return const [];
 
@@ -182,34 +187,9 @@ class YoutubeService {
       return _cachedSearchResults;
     }
 
-    final results = await _youtube.search.search(q).timeout(_searchTimeout);
-
-    final tracks = <Track>[];
-    final seen = <String>{};
-
-    for (final video in results) {
-      if (video.isLive) continue;
-      final durationSec = video.duration?.inSeconds;
-      if (durationSec != null &&
-          (durationSec < _minDurationSec || durationSec > _maxDurationSec)) {
-        continue;
-      }
-
-      final parsed = YoutubeTitleParser.parse(video.title, video.author);
-      final key =
-          '${parsed.title.toLowerCase()}|${parsed.artist.toLowerCase()}';
-      if (key.trim() == '|' || !seen.add(key)) continue;
-
-      tracks.add(
-        Track.youtube(
-          videoId: video.id.value,
-          title: parsed.title,
-          artist: parsed.artist,
-          artworkUrl: video.thumbnails.highResUrl,
-          durationSec: durationSec,
-        ),
-      );
-      if (tracks.length >= limit) break;
+    var tracks = await _searchYoutubeMusic(q, limit: limit);
+    if (tracks.isEmpty) {
+      tracks = await _searchYoutubeFallback(q, limit: limit);
     }
 
     _cachedSearchQuery = q;
@@ -223,6 +203,327 @@ class YoutubeService {
       limit: 2,
     );
     return _cachedSearchResults;
+  }
+
+  /// Прямой поиск песен в YouTube Music InnerTube (`WEB_REMIX`).
+  Future<List<Track>> _searchYoutubeMusic(
+    String query, {
+    int limit = 20,
+  }) async {
+    try {
+      final response = await _http
+          .post(
+            Uri.parse(_ytMusicSearchUrl),
+            headers: const {
+              'Content-Type': 'application/json',
+              'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                  '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+              'Origin': 'https://music.youtube.com',
+              'Referer': 'https://music.youtube.com/',
+            },
+            body: jsonEncode({
+              'context': {
+                'client': {
+                  'clientName': 'WEB_REMIX',
+                  'clientVersion': '1.20241120.01.00',
+                  'hl': 'en',
+                  'gl': 'US',
+                },
+              },
+              'query': query,
+              'params': _ytMusicSongsParams,
+            }),
+          )
+          .timeout(_searchTimeout);
+
+      if (response.statusCode != 200) {
+        debugPrint('YoutubeService: YT Music HTTP ${response.statusCode}');
+        return const [];
+      }
+
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final renderers = <Map<String, dynamic>>[];
+      _collectRenderers(decoded, renderers);
+
+      final tracks = <Track>[];
+      final seenIds = <String>{};
+      final seenKeys = <String>{};
+
+      for (final item in renderers) {
+        final track = _parseMusicRenderer(item);
+        if (track == null) continue;
+        final videoId = track.externalId ?? '';
+        if (videoId.isEmpty || !seenIds.add(videoId)) continue;
+        final key =
+            '${track.title.toLowerCase()}|${track.artist.toLowerCase()}';
+        if (!seenKeys.add(key)) continue;
+
+        tracks.add(track);
+        if (tracks.length >= limit) break;
+      }
+      return tracks;
+    } catch (error) {
+      debugPrint('YoutubeService: YT Music search failed: $error');
+      return const [];
+    }
+  }
+
+  void _collectRenderers(Object? node, List<Map<String, dynamic>> out) {
+    if (node is Map) {
+      final renderer = node['musicResponsiveListItemRenderer'];
+      if (renderer is Map) {
+        out.add(Map<String, dynamic>.from(renderer));
+        return;
+      }
+      for (final value in node.values) {
+        if (value is Map || value is List) {
+          _collectRenderers(value, out);
+        }
+      }
+    } else if (node is List) {
+      for (final element in node) {
+        if (element is Map || element is List) {
+          _collectRenderers(element, out);
+        }
+      }
+    }
+  }
+
+  Track? _parseMusicRenderer(Map<String, dynamic> renderer) {
+    final videoId = _extractMusicVideoId(renderer);
+    if (videoId == null || !YoutubeLink.isVideoId(videoId)) return null;
+
+    final flexColumns = renderer['flexColumns'];
+    if (flexColumns is! List || flexColumns.isEmpty) return null;
+
+    final title = _extractColumnText(flexColumns[0]).trim();
+    if (title.isEmpty) return null;
+
+    String artist = '';
+    int? durationSec;
+    if (flexColumns.length > 1) {
+      final metaRuns = _extractColumnRuns(flexColumns[1]);
+      final artistParts = <String>[];
+      var hitSeparator = false;
+      for (final rawRun in metaRuns) {
+        final text = rawRun.trim();
+        if (text.isEmpty) continue;
+        if (text == '•' || text == '·' || text == '|') {
+          if (artistParts.isNotEmpty) hitSeparator = true;
+          continue;
+        }
+        final parsedDur = _parseDurationText(text);
+        if (parsedDur != null) {
+          durationSec ??= parsedDur;
+          continue;
+        }
+        if (_looksLikeStats(text)) continue;
+        if (!hitSeparator && text != '&' && text != ',') {
+          artistParts.add(text);
+        }
+      }
+      artist = artistParts.join(', ').trim();
+    }
+
+    if (durationSec == null) {
+      final fixedColumns = renderer['fixedColumns'];
+      if (fixedColumns is List) {
+        for (final col in fixedColumns) {
+          final dur = _parseDurationText(_extractColumnText(col));
+          if (dur != null) {
+            durationSec = dur;
+            break;
+          }
+        }
+      }
+    }
+
+    if (durationSec != null &&
+        (durationSec < _minDurationSec || durationSec > _maxDurationSec)) {
+      return null;
+    }
+
+    final artworkUrl = _extractMusicArtwork(renderer);
+    return Track.youtube(
+      videoId: videoId,
+      title: title,
+      artist: artist.isEmpty ? 'YouTube Music' : artist,
+      artworkUrl: artworkUrl,
+      durationSec: durationSec,
+    );
+  }
+
+  String? _extractMusicVideoId(Map<String, dynamic> renderer) {
+    final playlistData = renderer['playlistItemData'];
+    if (playlistData is Map && playlistData['videoId'] is String) {
+      return playlistData['videoId'] as String;
+    }
+    final overlay = renderer['overlay'];
+    if (overlay is Map) {
+      final thumbOverlay = overlay['musicItemThumbnailOverlayRenderer'];
+      if (thumbOverlay is Map) {
+        final content = thumbOverlay['content'];
+        if (content is Map) {
+          final playBtn = content['musicPlayButtonRenderer'];
+          if (playBtn is Map) {
+            final endpoint = playBtn['playNavigationEndpoint'];
+            if (endpoint is Map) {
+              final watch = endpoint['watchEndpoint'];
+              if (watch is Map && watch['videoId'] is String) {
+                return watch['videoId'] as String;
+              }
+            }
+          }
+        }
+      }
+    }
+    final flex = renderer['flexColumns'];
+    if (flex is List && flex.isNotEmpty) {
+      final col = flex[0];
+      if (col is Map) {
+        final colRenderer = col['musicResponsiveListItemFlexColumnRenderer'];
+        if (colRenderer is Map) {
+          final text = colRenderer['text'];
+          if (text is Map && text['runs'] is List) {
+            for (final run in text['runs'] as List) {
+              if (run is Map) {
+                final nav = run['navigationEndpoint'];
+                if (nav is Map) {
+                  final watch = nav['watchEndpoint'];
+                  if (watch is Map && watch['videoId'] is String) {
+                    return watch['videoId'] as String;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  List<String> _extractColumnRuns(Object? column) {
+    if (column is! Map) return const [];
+    final renderer =
+        column['musicResponsiveListItemFlexColumnRenderer'] ??
+        column['musicResponsiveListItemFixedColumnRenderer'];
+    if (renderer is! Map) return const [];
+    final text = renderer['text'];
+    if (text is! Map) return const [];
+    final runs = text['runs'];
+    if (runs is! List) return const [];
+    return [
+      for (final run in runs)
+        if (run is Map && run['text'] is String) run['text'] as String,
+    ];
+  }
+
+  String _extractColumnText(Object? column) =>
+      _extractColumnRuns(column).join('');
+
+  int? _parseDurationText(String raw) {
+    final trimmed = raw.trim();
+    if (!RegExp(r'^\d{1,2}(:\d{2}){1,2}$').hasMatch(trimmed)) return null;
+    final parts = trimmed.split(':').map(int.tryParse).toList();
+    if (parts.any((p) => p == null)) return null;
+    if (parts.length == 2) return parts[0]! * 60 + parts[1]!;
+    if (parts.length == 3) {
+      return parts[0]! * 3600 + parts[1]! * 60 + parts[2]!;
+    }
+    return null;
+  }
+
+  bool _looksLikeStats(String text) {
+    final lower = text.toLowerCase();
+    return lower.contains('play') ||
+        lower.contains('view') ||
+        lower.contains('просмотр') ||
+        lower.contains('прослуш') ||
+        RegExp(r'^\d+(?:[.,]\d+)?[kmbк]\b', caseSensitive: false)
+            .hasMatch(lower);
+  }
+
+  String? _extractMusicArtwork(Map<String, dynamic> renderer) {
+    final thumb = renderer['thumbnail'];
+    if (thumb is! Map) return null;
+    final musicThumb = thumb['musicThumbnailRenderer'];
+    if (musicThumb is! Map) return null;
+    final thumbData = musicThumb['thumbnail'];
+    if (thumbData is! Map) return null;
+    final list = thumbData['thumbnails'];
+    if (list is! List || list.isEmpty) return null;
+
+    String? bestUrl;
+    for (final item in list.whereType<Map>()) {
+      final url = item['url'];
+      if (url is String && url.isNotEmpty) bestUrl = url;
+    }
+    if (bestUrl == null) return null;
+
+    if (bestUrl.contains('lh3.googleusercontent.com') ||
+        bestUrl.contains('yt3.ggpht.com')) {
+      return bestUrl.replaceFirst(RegExp(r'=w\d+-h\d+[^\s]*$'), '=w544-h544-l90-rj');
+    }
+    return bestUrl;
+  }
+
+  /// Резервный поиск полных треков через `YoutubeExplode`, если YT Music недоступен.
+  Future<List<Track>> _searchYoutubeFallback(
+    String query, {
+    int limit = 20,
+  }) async {
+    final results = await _youtube.search
+        .search('$query audio')
+        .timeout(_searchTimeout);
+
+    final candidates = <({Track track, int priority})>[];
+    final seen = <String>{};
+
+    for (final video in results) {
+      if (video.isLive) continue;
+      final durationSec = video.duration?.inSeconds;
+      if (durationSec != null &&
+          (durationSec < 60 || durationSec > _maxDurationSec)) {
+        continue;
+      }
+
+      final lowerTitle = video.title.toLowerCase();
+      if (lowerTitle.contains('#shorts') ||
+          lowerTitle.contains('reaction') ||
+          lowerTitle.contains('karaoke')) {
+        continue;
+      }
+
+      final parsed = YoutubeTitleParser.parse(video.title, video.author);
+      final key =
+          '${parsed.title.toLowerCase()}|${parsed.artist.toLowerCase()}';
+      if (key.trim() == '|' || !seen.add(key)) continue;
+
+      final lowerAuthor = video.author.toLowerCase();
+      var priority = 0;
+      if (lowerAuthor.contains('- topic')) priority += 30;
+      if (lowerAuthor.contains('vevo')) priority += 20;
+      if (lowerTitle.contains('official audio')) priority += 25;
+
+      candidates.add((
+        track: Track.youtube(
+          videoId: video.id.value,
+          title: parsed.title,
+          artist: parsed.artist,
+          artworkUrl: video.thumbnails.highResUrl,
+          durationSec: durationSec,
+        ),
+        priority: priority,
+      ));
+    }
+
+    candidates.sort((a, b) => b.priority.compareTo(a.priority));
+    return candidates
+        .take(limit)
+        .map((item) => item.track)
+        .toList(growable: false);
   }
 
   /// Находит лучший ролик под трек. Если известен [preferredVideoId]
@@ -254,6 +555,44 @@ class YoutubeService {
       cleanArtist,
     ].where((part) => part.isNotEmpty).join(' ').trim();
     if (query.isEmpty) return null;
+
+    // Сначала ищем в YouTube Music: там студийные треки без клипового шума.
+    final musicTracks = await _searchYoutubeMusic(query, limit: 8);
+    if (musicTracks.isNotEmpty) {
+      _ScoredVideo? bestMusic;
+      for (final track in musicTracks) {
+        final candidateDuration = track.durationSec;
+        if (candidateDuration != null &&
+            (candidateDuration < minDuration ||
+                candidateDuration > _maxDurationSec)) {
+          continue;
+        }
+        final score = _score(
+          parsed: YoutubeTitle(title: track.title, artist: track.artist),
+          rawTitle: '${track.artist} - ${track.title}',
+          channel: track.artist,
+          durationSec: candidateDuration,
+          wantedTitle: cleanTitle,
+          wantedArtist: cleanArtist,
+          wantedDuration: durationSec,
+        );
+        if (bestMusic == null || score > bestMusic.score) {
+          bestMusic = _ScoredVideo(
+            match: YoutubeMatch(
+              videoId: track.externalId ?? '',
+              title: track.title,
+              artist: track.artist,
+              artworkUrl: track.artworkUrl,
+              durationSec: candidateDuration,
+            ),
+            score: score,
+          );
+        }
+      }
+      if (bestMusic != null && bestMusic.match.videoId.isNotEmpty) {
+        return bestMusic.match;
+      }
+    }
 
     final results = await _youtube.search.search(query).timeout(_searchTimeout);
 

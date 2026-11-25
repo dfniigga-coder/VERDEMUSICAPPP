@@ -10,6 +10,36 @@ import '../services/recommendation_service.dart';
 import '../services/youtube_service.dart';
 import 'download_provider.dart';
 
+/// Пресеты звучания: скорость воспроизведения и высота тона.
+enum AudioVibePreset {
+  normal('Оригинал', 1.0, 1.0),
+  slowed('Slowed · 0.85x', 0.85, 0.88),
+  nightcore('Nightcore · 1.22x', 1.22, 1.22),
+  boosted('Динамика · 1.12x', 1.12, 1.0),
+  custom('Свой режим', 1.0, 1.0);
+
+  final String label;
+  final double speed;
+  final double pitch;
+
+  const AudioVibePreset(this.label, this.speed, this.pitch);
+
+  String get badge {
+    switch (this) {
+      case AudioVibePreset.normal:
+        return '';
+      case AudioVibePreset.slowed:
+        return 'SLOWED';
+      case AudioVibePreset.nightcore:
+        return 'NIGHTCORE';
+      case AudioVibePreset.boosted:
+        return '1.12x';
+      case AudioVibePreset.custom:
+        return 'SPEED';
+    }
+  }
+}
+
 /// UI-состояние плеера. Обёртка вокруг [AudioPlayerHandler]:
 /// хранит флаги для экранов и делегирует команды аудио-хендлеру.
 ///
@@ -34,11 +64,20 @@ class PlayerProvider extends ChangeNotifier {
 
     _bind(_handler.player.processingStateStream, (state) {
       _processing = state;
+      if (state == ProcessingState.completed && _sleepEndOfTrack) {
+        _sleepEndOfTrack = false;
+        unawaited(pause());
+      }
       _notify();
     });
 
     _bind(_handler.player.currentIndexStream, (index) {
+      final changed = _currentIndex != null && index != _currentIndex;
       _currentIndex = index;
+      if (changed && _sleepEndOfTrack) {
+        _sleepEndOfTrack = false;
+        unawaited(pause());
+      }
       _notify();
 
       final track = _handler.trackAt(index ?? -1);
@@ -61,6 +100,13 @@ class PlayerProvider extends ChangeNotifier {
     _bind(_handler.player.volumeStream, (volume) {
       _volume = volume;
       _notify();
+    });
+
+    _bind(_handler.player.speedStream, (speed) {
+      if ((_speed - speed).abs() > 0.01) {
+        _speed = speed;
+        _notify();
+      }
     });
 
     // Позиция и длительность обновляются несколько раз в секунду.
@@ -102,6 +148,16 @@ class PlayerProvider extends ChangeNotifier {
   LoopMode _loopMode = LoopMode.off;
   double _volume = 1.0;
 
+  // Скорость, тон и пресет звучания.
+  double _speed = 1.0;
+  double _pitch = 1.0;
+  AudioVibePreset _preset = AudioVibePreset.normal;
+
+  // Таймер сна.
+  Timer? _sleepTimer;
+  DateTime? _sleepDeadline;
+  bool _sleepEndOfTrack = false;
+
   /// Номер последнего запуска очереди. Нужен, чтобы запоздавший апгрейд
   /// превью не подменил трек уже другой очереди.
   int _playRequest = 0;
@@ -113,6 +169,10 @@ class PlayerProvider extends ChangeNotifier {
   /// Отдельный ValueNotifier, чтобы UI мог показывать снекбар без
   /// перерисовки всего дерева на каждое изменение.
   final ValueNotifier<String?> errorNotifier = ValueNotifier<String?>(null);
+
+  /// Оставшееся время таймера сна (обновляется каждую секунду без лишних rebuild).
+  final ValueNotifier<Duration?> sleepRemainingNotifier =
+      ValueNotifier<Duration?>(null);
 
   AudioPlayerHandler get handler => _handler;
 
@@ -142,6 +202,22 @@ class PlayerProvider extends ChangeNotifier {
 
   /// 0.0–1.0.
   double get volume => _volume;
+
+  double get speed => _speed;
+
+  double get pitch => _pitch;
+
+  AudioVibePreset get audioPreset => _preset;
+
+  bool get hasCustomAudioEffect =>
+      _preset != AudioVibePreset.normal ||
+      (_speed - 1.0).abs() > 0.01 ||
+      (_pitch - 1.0).abs() > 0.01;
+
+  bool get sleepEndOfTrack => _sleepEndOfTrack;
+
+  bool get hasSleepTimer =>
+      _sleepEndOfTrack || sleepRemainingNotifier.value != null;
 
   // --- Команды -------------------------------------------------------------
 
@@ -209,6 +285,31 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
+  /// Запускает бесконечную волну похожих треков на основе [seed].
+  Future<bool> startTrackRadio(Track seed) async {
+    final recommendations = _recommendations;
+    if (recommendations == null) {
+      await playTracks([seed]);
+      return true;
+    }
+
+    try {
+      final similar = await recommendations.getSimilarTracks(seed);
+      final radio = <Track>[seed];
+      final seen = <String>{seed.id};
+      for (final track in similar) {
+        if (seen.add(track.id)) {
+          radio.add(track);
+        }
+      }
+      await playTracks(radio, startIndex: 0);
+      return true;
+    } catch (_) {
+      errorNotifier.value = 'Не удалось собрать волну по треку.';
+      return false;
+    }
+  }
+
   Future<void> togglePlay() async {
     try {
       if (_playing) {
@@ -235,7 +336,7 @@ class PlayerProvider extends ChangeNotifier {
     try {
       await _handler.play();
     } catch (e) {
-      errorNotifier.value = 'Не удалось возобновить воспроизведение.';
+      errorNotifier.value = 'Не удалось возозобновить воспроизведение.';
     }
   }
 
@@ -311,6 +412,114 @@ class PlayerProvider extends ChangeNotifier {
   Future<void> setVolume(double value) {
     final v = value.clamp(0.0, 1.0);
     return _handler.player.setVolume(v);
+  }
+
+  // --- Скорость, тон и пресеты ---------------------------------------------
+
+  Future<void> setAudioPreset(AudioVibePreset preset) async {
+    if (preset == AudioVibePreset.custom) return;
+    _preset = preset;
+    _speed = preset.speed;
+    _pitch = preset.pitch;
+    _notify();
+    await _applySpeedAndPitch(_speed, _pitch);
+  }
+
+  Future<void> setCustomSpeedPitch({
+    required double speed,
+    double? pitch,
+  }) async {
+    _speed = speed.clamp(0.5, 2.0);
+    if (pitch != null) {
+      _pitch = pitch.clamp(0.7, 1.4);
+    }
+    if ((_speed - 1.0).abs() <= 0.01 && (_pitch - 1.0).abs() <= 0.01) {
+      _preset = AudioVibePreset.normal;
+      _speed = 1.0;
+      _pitch = 1.0;
+    } else {
+      _preset = AudioVibePreset.custom;
+    }
+    _notify();
+    await _applySpeedAndPitch(_speed, _pitch);
+  }
+
+  Future<void> _applySpeedAndPitch(double speed, double pitch) async {
+    try {
+      await _handler.player.setSpeed(speed);
+    } catch (_) {}
+    try {
+      await _handler.player.setPitch(pitch);
+    } catch (_) {
+      // setPitch поддерживается не на всех платформах.
+    }
+  }
+
+  // --- Таймер сна ----------------------------------------------------------
+
+  void setSleepTimer(Duration? duration, {bool endOfTrack = false}) {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    _sleepDeadline = null;
+
+    if (endOfTrack) {
+      _sleepEndOfTrack = true;
+      sleepRemainingNotifier.value = null;
+      _notify();
+      return;
+    }
+
+    _sleepEndOfTrack = false;
+    if (duration == null || duration <= Duration.zero) {
+      sleepRemainingNotifier.value = null;
+      _notify();
+      return;
+    }
+
+    _sleepDeadline = DateTime.now().add(duration);
+    sleepRemainingNotifier.value = duration;
+    _notify();
+
+    _sleepTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_disposed || _sleepDeadline == null) {
+        timer.cancel();
+        return;
+      }
+      final left = _sleepDeadline!.difference(DateTime.now());
+      if (left <= Duration.zero) {
+        timer.cancel();
+        _sleepTimer = null;
+        _sleepDeadline = null;
+        sleepRemainingNotifier.value = null;
+        _notify();
+        unawaited(_fadeOutAndPause());
+      } else {
+        sleepRemainingNotifier.value = left;
+      }
+    });
+  }
+
+  void cancelSleepTimer() => setSleepTimer(null);
+
+  Future<void> _fadeOutAndPause() async {
+    final originalVolume = _volume;
+    try {
+      const steps = 6;
+      for (var i = steps - 1; i >= 0; i--) {
+        if (_disposed) return;
+        await _handler.player.setVolume(originalVolume * (i / steps));
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+      await _handler.pause();
+    } catch (_) {
+      // Игнорируем ошибку затухания, пауза важнее.
+    } finally {
+      if (!_disposed) {
+        try {
+          await _handler.player.setVolume(originalVolume);
+        } catch (_) {}
+      }
+    }
   }
 
   // --- Подготовка треков ----------------------------------------------------
@@ -439,11 +648,13 @@ class PlayerProvider extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _sleepTimer?.cancel();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
     _subscriptions.clear();
     errorNotifier.dispose();
+    sleepRemainingNotifier.dispose();
     super.dispose();
   }
 }

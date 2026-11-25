@@ -61,9 +61,11 @@ Future<void> _runApp() async {
   unawaited(youtubeService.warmUpPlaybackHost());
   final searchApi = SearchApi(audiusApi, prefs, youtubeService);
   final localTracksRepo = LocalTracksRepository(OnAudioQuery(), prefs);
+  final lyricsService = LyricsService();
   final mp3DownloadService = Mp3DownloadService(
     youtube: youtubeService,
     localTracks: localTracksRepo,
+    lyrics: lyricsService,
   );
   final recommendationService = RecommendationService(
     prefs: prefs,
@@ -72,7 +74,6 @@ Future<void> _runApp() async {
     localTracks: localTracksRepo,
   );
   final downloadProvider = DownloadProvider(mp3DownloadService);
-  final lyricsService = LyricsService();
 
   // 3. Фоновый аудио-сервис (уведомление, экран блокировки, гарнитура).
   // Если сервис не поднялся, всё равно запускаем обычный just_audio:

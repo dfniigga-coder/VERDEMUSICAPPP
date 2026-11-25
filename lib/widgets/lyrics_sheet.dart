@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme/design_tokens.dart';
@@ -8,8 +10,9 @@ import '../data/models/lyrics.dart';
 import '../data/models/track.dart';
 import '../providers/player_provider.dart';
 import '../services/lyrics_service.dart';
+import 'artwork.dart';
 
-/// Открывает шторку с настоящим текстом трека из LRCLIB.
+/// Открывает стеклянную шторку с текстом трека из LRCLIB.
 Future<void> showLyricsSheet(BuildContext context, Track track) {
   return showModalBottomSheet<void>(
     context: context,
@@ -50,13 +53,14 @@ class _LyricsSheetState extends State<LyricsSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final height = MediaQuery.of(context).size.height * 0.82;
+    final height = MediaQuery.of(context).size.height * 0.84;
 
     return Container(
       height: height,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+        border: Border.all(color: AppColors.glassBorder),
       ),
       child: Column(
         children: [
@@ -65,14 +69,20 @@ class _LyricsSheetState extends State<LyricsSheet> {
             width: 42,
             height: 4,
             decoration: BoxDecoration(
-              color: AppColors.stroke,
+              color: AppColors.glassBorder,
               borderRadius: BorderRadius.circular(99),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 10, 10),
+            padding: const EdgeInsets.fromLTRB(20, 14, 10, 12),
             child: Row(
               children: [
+                ArtworkView(
+                  size: 46,
+                  url: widget.track.artworkUrl,
+                  borderRadius: AppRadii.smAll,
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -80,7 +90,7 @@ class _LyricsSheetState extends State<LyricsSheet> {
                       const Text(
                         'Текст песни',
                         style: TextStyle(
-                          fontSize: 20,
+                          fontSize: 18,
                           fontWeight: FontWeight.w800,
                           letterSpacing: -0.4,
                           color: AppColors.text,
@@ -108,7 +118,7 @@ class _LyricsSheetState extends State<LyricsSheet> {
               ],
             ),
           ),
-          const Divider(height: 1, color: Colors.white12),
+          const Divider(height: 1),
           Expanded(
             child: FutureBuilder<Lyrics?>(
               future: _future,
@@ -132,10 +142,10 @@ class _LyricsSheetState extends State<LyricsSheet> {
             ),
           ),
           const Padding(
-            padding: EdgeInsets.only(bottom: 8),
+            padding: EdgeInsets.only(bottom: 10),
             child: Text(
-              'Текст: LRCLIB',
-              style: TextStyle(fontSize: 10, color: AppColors.textDim),
+              'Синхронный текст · LRCLIB',
+              style: TextStyle(fontSize: 10.5, color: AppColors.textMuted),
             ),
           ),
         ],
@@ -227,16 +237,24 @@ class _SyncedLyricsState extends State<_SyncedLyrics> {
 
   @override
   Widget build(BuildContext context) {
+    final disableAnimations =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+
     return ListView(
       controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 44),
       children: [
         for (var index = 0; index < widget.lyrics.lines.length; index++)
           _LyricLineView(
             key: _keys[index],
             line: widget.lyrics.lines[index],
             active: index == _active,
-            onTap: () => _player.seek(widget.lyrics.lines[index].time),
+            distance: _active < 0 ? 1 : (index - _active).abs(),
+            disableBlur: disableAnimations,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              _player.seek(widget.lyrics.lines[index].time);
+            },
           ),
       ],
     );
@@ -248,31 +266,52 @@ class _LyricLineView extends StatelessWidget {
     super.key,
     required this.line,
     required this.active,
+    required this.distance,
+    required this.disableBlur,
     required this.onTap,
   });
 
   final LyricLine line;
   final bool active;
+  final int distance;
+  final bool disableBlur;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final blurSigma = disableBlur || active
+        ? 0.0
+        : (distance == 1 ? 0.5 : (distance >= 2 ? 1.4 : 0.0));
+
+    Widget text = AnimatedDefaultTextStyle(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      style: TextStyle(
+        fontFamily: 'Manrope',
+        fontSize: active ? 22 : 17.5,
+        fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+        height: 1.35,
+        letterSpacing: active ? -0.35 : -0.1,
+        color: active
+            ? AppColors.accentBright
+            : Colors.white.withValues(alpha: distance == 1 ? 0.55 : 0.32),
+      ),
+      child: Text(line.text),
+    );
+
+    if (blurSigma > 0) {
+      text = ImageFiltered(
+        imageFilter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+        child: text,
+      );
+    }
+
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 7),
-        child: AnimatedDefaultTextStyle(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          style: TextStyle(
-            fontSize: active ? 21 : 17,
-            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-            height: 1.35,
-            color: active ? AppColors.accentBright : AppColors.textDim,
-          ),
-          child: Text(line.text),
-        ),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: text,
       ),
     );
   }
@@ -290,8 +329,9 @@ class _PlainLyrics extends StatelessWidget {
       child: Text(
         text.trim(),
         style: const TextStyle(
-          fontSize: 17,
-          height: 1.55,
+          fontSize: 17.5,
+          fontWeight: FontWeight.w500,
+          height: 1.6,
           color: AppColors.text,
         ),
       ),
@@ -320,7 +360,7 @@ class _EmptyLyrics extends StatelessWidget {
             const SizedBox(height: 12),
             const Text(
               'Текст не найден',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
             const Text(
@@ -354,7 +394,7 @@ class _InstrumentalLyrics extends StatelessWidget {
           SizedBox(height: 12),
           Text(
             'Инструментальная композиция',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
           ),
           SizedBox(height: 6),
           Text(

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -30,14 +31,24 @@ class LyricsService {
     'Accept': 'application/json',
   };
 
-  /// Ищет текст по названию и исполнителю.
+  /// Путь к sidecar-файлу `.lrc` рядом с локальным аудиофайлом.
+  static String sidecarLrcPath(String audioPath) {
+    final dot = audioPath.lastIndexOf('.');
+    final slash = audioPath.lastIndexOf(Platform.pathSeparator);
+    if (dot > slash && dot > 0) {
+      return '${audioPath.substring(0, dot)}.lrc';
+    }
+    return '$audioPath.lrc';
+  }
+
+  /// Ищет текст: сначала локальный `.lrc` рядом с файлом, затем LRCLIB.
   ///
   /// [refresh] сбрасывает кэш для трека — нужен кнопке «Обновить»,
   /// если в первый раз сеть не ответила.
   Future<Lyrics?> fetch(Track track, {bool refresh = false}) {
     final key = _cacheKey(track);
     if (refresh) _cache.remove(key);
-    return _cache.putIfAbsent(key, () => _fetch(track));
+    return _cache.putIfAbsent(key, () => _fetch(track, refresh: refresh));
   }
 
   void dispose() {
@@ -48,27 +59,76 @@ class LyricsService {
   String _cacheKey(Track track) {
     final title = track.title.trim().toLowerCase();
     final artist = track.artist.trim().toLowerCase();
-    return '$title|$artist|${track.durationSec ?? ''}';
+    final local = track.localPath?.trim() ?? '';
+    return '$title|$artist|${track.durationSec ?? ''}|$local';
   }
 
-  Future<Lyrics?> _fetch(Track track) async {
+  Future<Lyrics?> _fetch(Track track, {bool refresh = false}) async {
+    final localPath = track.localPath?.trim();
+    if (!refresh && localPath != null && localPath.isNotEmpty) {
+      final localLyrics = await _readSidecar(localPath, track);
+      if (localLyrics != null) return localLyrics;
+    }
+
     final candidates = _candidates(track);
     if (candidates.isEmpty) return null;
 
+    Lyrics? found;
     // Сначала точный запрос: LRCLIB сам подбирает версию по длительности.
     for (final candidate in candidates) {
-      final exact = await _get(candidate, track.durationSec);
-      if (exact != null) return exact;
+      found = await _get(candidate, track.durationSec);
+      if (found != null) break;
     }
 
     // Если точного совпадения нет — поиск. Результаты проверяем по
     // названию/исполнителю, чтобы не показать текст чужой песни.
-    for (final candidate in candidates) {
-      final found = await _search(candidate);
-      if (found != null) return found;
+    if (found == null) {
+      for (final candidate in candidates) {
+        found = await _search(candidate);
+        if (found != null) break;
+      }
     }
 
-    return null;
+    if (found != null && localPath != null && localPath.isNotEmpty) {
+      unawaited(_writeSidecarQuietly(localPath, found, track));
+    }
+
+    return found;
+  }
+
+  Future<Lyrics?> _readSidecar(String audioPath, Track track) async {
+    try {
+      final file = File(sidecarLrcPath(audioPath));
+      if (!await file.exists()) return null;
+      final raw = await file.readAsString(encoding: utf8);
+      return Lyrics.fromLrcContent(
+        raw,
+        title: track.title,
+        artist: track.artist,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeSidecarQuietly(
+    String audioPath,
+    Lyrics lyrics,
+    Track track,
+  ) async {
+    try {
+      final content = lyrics.toLrcString(
+        fallbackTitle: track.title,
+        fallbackArtist: track.artist,
+      );
+      if (content == null || content.isEmpty) return;
+      final audioFile = File(audioPath);
+      if (!await audioFile.exists()) return;
+      final lrcFile = File(sidecarLrcPath(audioPath));
+      await lrcFile.writeAsString(content, encoding: utf8, flush: true);
+    } catch (_) {
+      // Отсутствие прав на запись рядом с системным файлом не критично.
+    }
   }
 
   Future<Lyrics?> _get(_LyricsQuery query, int? durationSec) async {

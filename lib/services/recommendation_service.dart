@@ -62,6 +62,27 @@ class HomeRecommendations {
   bool get isEmpty => sections.isEmpty;
 }
 
+/// Запись истории прослушиваний для экрана «Мой вайб» и ленты «Недавние».
+class PlayedHistoryItem {
+  final Track track;
+  final DateTime playedAt;
+
+  const PlayedHistoryItem({required this.track, required this.playedAt});
+}
+
+/// Статистика прослушиваний по исполнителю.
+class ArtistTasteStat {
+  final String name;
+  final int score;
+  final String? artworkUrl;
+
+  const ArtistTasteStat({
+    required this.name,
+    required this.score,
+    this.artworkUrl,
+  });
+}
+
 /// Локальный рекомендательный движок без внешнего сервера.
 ///
 /// История хранится в shared_preferences (до 300 событий), потому что
@@ -107,17 +128,9 @@ class RecommendationService {
   /// секунд. Кэш экономит десятки запросов при возврате на главную.
   final Map<String, _CachedTracks> _similarCache = {};
 
-  /// Deezer/iTunes — превью и обложки; для похожих добавляем Audius,
-  /// где иногда находится полная версия.
-  static const Set<TrackSource> _previewSources = {
-    TrackSource.deezer,
-    TrackSource.itunes,
-  };
-  static const Set<TrackSource> _similarSources = {
-    TrackSource.deezer,
-    TrackSource.itunes,
-    TrackSource.audius,
-  };
+  /// Поиск только полных треков YouTube Music для подборок и похожих.
+  static const Set<TrackSource> _previewSources = {TrackSource.youtube};
+  static const Set<TrackSource> _similarSources = {TrackSource.youtube};
 
   bool get hasTaste =>
       _history.isNotEmpty ||
@@ -129,6 +142,79 @@ class RecommendationService {
       _library.playlists.any((playlist) => playlist.tracks.isNotEmpty);
 
   int get historyLength => _history.length;
+
+  /// Всего записанных прослушиваний в истории.
+  int get totalPlaysCount => _history.length;
+
+  /// Суммарная оценочная длительность прослушанной музыки.
+  Duration get totalListenDuration {
+    var seconds = 0;
+    for (final entry in _history) {
+      seconds += entry.track.durationSec ?? 180;
+    }
+    return Duration(seconds: seconds);
+  }
+
+  /// До 60 последних записей истории (от новых к старым).
+  List<PlayedHistoryItem> get recentHistory => [
+    for (final entry in _history.take(60))
+      PlayedHistoryItem(track: entry.track, playedAt: entry.playedAt),
+  ];
+
+  /// До 12 уникальных недавно прослушанных треков.
+  List<Track> get recentUniqueTracks {
+    final result = <Track>[];
+    final seen = <String>{};
+    for (final entry in _history) {
+      if (seen.add(_dedupeKey(entry.track))) {
+        result.add(entry.track);
+        if (result.length >= 12) break;
+      }
+    }
+    return result;
+  }
+
+  /// Топ-10 самых прослушиваемых треков.
+  List<Track> get mostPlayedTracks => _mostPlayedTracks(10);
+
+  /// Топ-6 исполнителей с подбором обложки из истории или лайков.
+  List<ArtistTasteStat> get topArtistStats {
+    final artists = _topArtists(6);
+    if (artists.isEmpty) return const [];
+
+    String? findArtwork(String artistName) {
+      for (final entry in _history) {
+        if (_artistMatches(entry.track.artist, artistName) &&
+            (entry.track.artworkUrl?.isNotEmpty ?? false)) {
+          return entry.track.artworkUrl;
+        }
+      }
+      for (final track in _library.likedTracks) {
+        if (_artistMatches(track.artist, artistName) &&
+            (track.artworkUrl?.isNotEmpty ?? false)) {
+          return track.artworkUrl;
+        }
+      }
+      for (final playlist in _library.playlists) {
+        for (final track in playlist.tracks) {
+          if (_artistMatches(track.artist, artistName) &&
+              (track.artworkUrl?.isNotEmpty ?? false)) {
+            return track.artworkUrl;
+          }
+        }
+      }
+      return null;
+    }
+
+    return [
+      for (final artist in artists)
+        ArtistTasteStat(
+          name: artist.name,
+          score: artist.weight,
+          artworkUrl: findArtwork(artist.name),
+        ),
+    ];
+  }
 
   /// Вызывается из PlayerProvider при старте трека и смене текущего индекса.
   Future<void> recordPlay(Track track) async {
@@ -459,30 +545,16 @@ class RecommendationService {
   List<Track> _tracksForArtist(List<Track> tracks, String artist) {
     final matches = <Track>[
       for (final track in tracks)
-        if (_isPlayable(track) && _artistMatches(track.artist, artist)) track,
+        if (_isPlayable(track) &&
+            !track.isPreview &&
+            _artistMatches(track.artist, artist))
+          track,
     ];
     if (matches.isEmpty) return const [];
 
-    // По задаче сначала Deezer/iTunes; полные Audius/Jamendo — как бонус.
-    final preferred = <Track>[
-      for (final track in matches)
-        if (track.source == TrackSource.deezer ||
-            track.source == TrackSource.itunes)
-          track,
-    ];
-    final ordered = preferred.isNotEmpty
-        ? <Track>[
-            ...preferred,
-            for (final track in matches)
-              if (track.source != TrackSource.deezer &&
-                  track.source != TrackSource.itunes)
-                track,
-          ]
-        : matches;
-
     final result = <Track>[];
     final seen = <String>{};
-    for (final track in ordered) {
+    for (final track in matches) {
       if (seen.add(_dedupeKey(track))) result.add(track);
     }
     return result;
