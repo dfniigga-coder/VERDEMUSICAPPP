@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../core/theme/design_tokens.dart';
+
 /// Диалог с полем ввода. Возвращает trimmed строку или null (отмена).
 Future<String?> showTextDialog(
   BuildContext context, {
@@ -22,6 +24,7 @@ Future<String?> showTextDialog(
           decoration: InputDecoration(hintText: hintText),
           onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
         ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
@@ -56,6 +59,7 @@ Future<bool> showConfirmDialog(
       return AlertDialog(
         title: Text(title),
         content: Text(message),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -64,7 +68,8 @@ Future<bool> showConfirmDialog(
           FilledButton(
             style: destructive
                 ? FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFB3261E),
+                    backgroundColor: AppColors.deleteRed,
+                    foregroundColor: Colors.black,
                   )
                 : null,
             onPressed: () => Navigator.of(dialogContext).pop(true),
@@ -75,10 +80,4 @@ Future<bool> showConfirmDialog(
     },
   );
   return result ?? false;
-}
-
-/// Небольшая обёртка для цвета удаления.
-class AppColors {
-  AppColors._();
-  static const Color deleteRed = Color(0xFFB3261E);
 }

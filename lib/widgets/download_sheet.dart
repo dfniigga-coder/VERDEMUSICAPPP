@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/theme/app_theme.dart';
+import '../core/theme/design_tokens.dart';
 import '../data/models/track.dart';
 import '../providers/download_provider.dart';
 import '../services/mp3_download_service.dart';
@@ -73,7 +73,7 @@ class DownloadProgressSheet extends StatelessWidget {
                     width: 36,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: AppTheme.textDim.withValues(alpha: 0.4),
+                      color: AppColors.stroke,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -102,7 +102,7 @@ class DownloadProgressSheet extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              color: AppTheme.textDim,
+                              color: AppColors.textDim,
                               fontSize: 12,
                             ),
                           ),
@@ -128,7 +128,7 @@ class DownloadProgressSheet extends StatelessWidget {
                   const Text(
                     'Скачивание продолжится — прогресс виден внизу экрана.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: AppTheme.textDim, fontSize: 11),
+                    style: TextStyle(color: AppColors.textDim, fontSize: 11),
                   ),
                 ] else if (failed) ...[
                   FilledButton.icon(
@@ -182,7 +182,7 @@ class _Status extends StatelessWidget {
         children: [
           const Icon(
             Icons.check_circle_rounded,
-            color: AppTheme.accentGreen,
+            color: AppColors.accentBright,
             size: 42,
           ),
           const SizedBox(height: 8),
@@ -196,12 +196,12 @@ class _Status extends StatelessWidget {
                 ? 'Файл сохранён: $publicPath'
                 : 'Файл сохранён в приложении и добавлен в «Мои треки».',
             textAlign: TextAlign.center,
-            style: const TextStyle(color: AppTheme.textDim, fontSize: 12),
+            style: const TextStyle(color: AppColors.textDim, fontSize: 12),
           ),
           const SizedBox(height: 4),
           const Text(
             'MP3, 192 кбит/с',
-            style: TextStyle(color: AppTheme.textDim, fontSize: 11),
+            style: TextStyle(color: AppColors.textDim, fontSize: 11),
           ),
         ],
       );
@@ -212,7 +212,7 @@ class _Status extends StatelessWidget {
         children: [
           const Icon(
             Icons.error_outline_rounded,
-            color: Color(0xFFE57373),
+            color: AppColors.error,
             size: 42,
           ),
           const SizedBox(height: 8),
@@ -225,7 +225,7 @@ class _Status extends StatelessWidget {
           const Text(
             'Проверьте соединение или попробуйте другой результат поиска.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: AppTheme.textDim, fontSize: 11),
+            style: TextStyle(color: AppColors.textDim, fontSize: 11),
           ),
         ],
       );
@@ -255,7 +255,7 @@ class _Status extends StatelessWidget {
             if (percent != null)
               Text(
                 '$percent%',
-                style: const TextStyle(color: AppTheme.textDim, fontSize: 12),
+                style: const TextStyle(color: AppColors.textDim, fontSize: 12),
               ),
           ],
         ),
@@ -281,45 +281,50 @@ class DownloadProgressBanner extends StatelessWidget {
     final determinate =
         task.stage == DownloadStage.downloading && task.progress != null;
 
-    return Material(
-      color: AppTheme.surfaceContainer,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          LinearProgressIndicator(
-            value: determinate ? task.progress : 0,
-            minHeight: 2,
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 7, 16, 7),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.downloading,
-                  size: 16,
-                  color: AppTheme.accentGreen,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '${task.stage.label} ${task.track.title}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: AppColors.surfaceRaised,
+        borderRadius: AppRadii.mdAll,
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            LinearProgressIndicator(
+              value: determinate ? task.progress : 0,
+              minHeight: 2,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.downloading,
+                    size: 16,
+                    color: AppColors.accentBright,
                   ),
-                ),
-                if (percent != null)
-                  Text(
-                    '$percent%',
-                    style: const TextStyle(
-                      color: AppTheme.textDim,
-                      fontSize: 11,
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${task.stage.label} ${task.track.title}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11.5),
                     ),
                   ),
-              ],
+                  if (percent != null)
+                    Text(
+                      '$percent%',
+                      style: const TextStyle(
+                        color: AppColors.textDim,
+                        fontSize: 11,
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -349,7 +354,7 @@ class DownloadButton extends StatelessWidget {
       onPressed: downloading || another
           ? null
           : () => startDownloadWithSheet(context, track),
-      color: AppTheme.accentGreen,
+      color: AppColors.accentBright,
       icon: downloading
           ? SizedBox(
               width: 20,

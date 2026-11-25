@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/errors/app_exceptions.dart';
-import '../../core/theme/app_theme.dart';
+import '../../core/theme/design_tokens.dart';
+import '../../core/utils/formatters.dart';
 import '../../data/models/collection.dart';
 import '../../data/models/track.dart';
 import '../../data/repositories/music_repository.dart';
 import '../../providers/player_provider.dart';
+import '../../widgets/app_card.dart';
 import '../../widgets/artwork.dart';
 import '../../widgets/common.dart';
 import '../../widgets/track_tile.dart';
@@ -51,7 +53,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
         _error = e.message;
         _loading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _error = 'Не удалось загрузить подборку. Попробуйте ещё раз.';
@@ -94,7 +96,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
     final tracks = _tracks ?? const <Track>[];
 
     return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 110),
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, AppSpacing.pageBottom),
       itemCount: tracks.length + 1,
       itemBuilder: (context, index) {
         if (index == 0) {
@@ -113,58 +115,91 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
   Widget _header(Collection collection, List<Track> tracks) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: Row(
-        children: [
-          ArtworkView(
-            size: 110,
-            url: collection.artworkUrl,
-            borderRadius: const BorderRadius.all(Radius.circular(12)),
-            placeholderIcon: Icons.queue_music,
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  collection.title,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    height: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '${tracks.length} ${tracks.length == 1 ? 'трек' : 'треков'}',
-                  style: const TextStyle(color: AppTheme.textDim, fontSize: 13),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    FilledButton.icon(
-                      onPressed: tracks.isEmpty ? null : () => _play(tracks, 0),
-                      icon: const Icon(Icons.play_arrow_rounded),
-                      label: const Text('Слушать'),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      onPressed: tracks.isEmpty
-                          ? null
-                          : () => _playTracksShuffled(tracks),
-                      icon: const Icon(Icons.shuffle),
-                      tooltip: 'Перемешать',
-                      style: IconButton.styleFrom(
-                        backgroundColor: AppTheme.surfaceContainer,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+      child: AppCard(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.accentDeep.withValues(alpha: 0.5),
+            AppColors.surfaceRaised,
+          ],
+        ),
+        borderRadius: AppRadii.xlAll,
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            ArtworkView(
+              size: 112,
+              url: collection.artworkUrl,
+              borderRadius: AppRadii.mdAll,
+              placeholderIcon: Icons.queue_music_rounded,
             ),
-          ),
-        ],
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'ПОДБОРКА',
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.3,
+                      color: AppColors.accentBright,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    collection.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.4,
+                      height: 1.2,
+                      color: AppColors.text,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    trackCountLabel(tracks.length),
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: AppColors.textDim,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      FilledButton.icon(
+                        onPressed: tracks.isEmpty
+                            ? null
+                            : () => _play(tracks, 0),
+                        icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                        label: const Text('Слушать'),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: tracks.isEmpty
+                            ? null
+                            : () => _playTracksShuffled(tracks),
+                        icon: const Icon(Icons.shuffle_rounded, size: 20),
+                        color: AppColors.text,
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.white.withValues(alpha: 0.08),
+                          shape: const CircleBorder(),
+                        ),
+                        tooltip: 'Перемешать',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

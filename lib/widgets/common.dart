@@ -1,35 +1,82 @@
 import 'package:flutter/material.dart';
 
-import '../core/theme/app_theme.dart';
+import '../core/theme/design_tokens.dart';
 
-/// Заголовок секции на главной.
+/// Заголовок секции с необязательным действием справа.
 class SectionHeader extends StatelessWidget {
   final String title;
 
   final String? subtitle;
 
-  const SectionHeader({super.key, required this.title, this.subtitle});
+  final String? actionLabel;
+
+  final VoidCallback? onAction;
+
+  final Widget? action;
+
+  final EdgeInsetsGeometry padding;
+
+  const SectionHeader({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.actionLabel,
+    this.onAction,
+    this.action,
+    this.padding = const EdgeInsets.fromLTRB(16, 22, 12, 12),
+  });
 
   @override
   Widget build(BuildContext context) {
+    final trailing =
+        action ??
+        (actionLabel != null && onAction != null
+            ? TextButton(
+                onPressed: onAction,
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  foregroundColor: AppColors.accentBright,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(actionLabel!),
+                    const SizedBox(width: 2),
+                    const Icon(Icons.chevron_right_rounded, size: 17),
+                  ],
+                ),
+              )
+            : null);
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: padding,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleLarge
-                ?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              subtitle!,
-              style: Theme.of(context).textTheme.bodySmall
-                  ?.copyWith(color: AppTheme.textDim),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ],
             ),
-          ],
+          ),
+          if (trailing != null) trailing,
         ],
       ),
     );
@@ -48,21 +95,43 @@ class ErrorView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.all(AppSpacing.huge),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.cloud_off, size: 56, color: AppTheme.textDim),
-            const SizedBox(height: 16),
+            Container(
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.error.withValues(alpha: 0.1),
+                border: Border.all(
+                  color: AppColors.error.withValues(alpha: 0.22),
+                ),
+              ),
+              child: const Icon(
+                Icons.cloud_off_rounded,
+                size: 38,
+                color: AppColors.error,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Не удалось загрузить',
+              style: Theme.of(context).textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
             Text(
               message,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: AppColors.textDim, height: 1.5),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 22),
             FilledButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
+              icon: const Icon(Icons.refresh_rounded, size: 19),
               label: const Text('Повторить'),
             ),
           ],
@@ -94,15 +163,28 @@ class EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.all(AppSpacing.huge),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 56, color: AppTheme.textDim),
-            const SizedBox(height: 16),
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [AppColors.accentSoft(0.22), AppColors.surfaceRaised],
+                ),
+                border: Border.all(color: AppColors.stroke),
+              ),
+              child: Icon(icon, size: 38, color: AppColors.accentBright),
+            ),
+            const SizedBox(height: 20),
             Text(
               title,
-              style: Theme.of(context).textTheme.titleMedium,
+              style: Theme.of(context).textTheme.titleLarge,
               textAlign: TextAlign.center,
             ),
             if (subtitle != null) ...[
@@ -110,11 +192,11 @@ class EmptyState extends StatelessWidget {
               Text(
                 subtitle!,
                 style: Theme.of(context).textTheme.bodySmall
-                    ?.copyWith(color: AppTheme.textDim),
+                    ?.copyWith(color: AppColors.textDim, height: 1.5),
                 textAlign: TextAlign.center,
               ),
             ],
-            if (action != null) ...[const SizedBox(height: 20), action!],
+            if (action != null) ...[const SizedBox(height: 22), action!],
           ],
         ),
       ),
@@ -134,13 +216,17 @@ class LoadingView extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const CircularProgressIndicator(),
+          const SizedBox(
+            width: 30,
+            height: 30,
+            child: CircularProgressIndicator(strokeWidth: 2.6),
+          ),
           if (message != null) ...[
             const SizedBox(height: 16),
             Text(
               message!,
               style: Theme.of(context).textTheme.bodySmall
-                  ?.copyWith(color: AppTheme.textDim),
+                  ?.copyWith(color: AppColors.textDim),
             ),
           ],
         ],
@@ -159,10 +245,24 @@ void showAppSnackBar(
     ..clearSnackBars()
     ..showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Row(
+          children: [
+            Icon(
+              isError
+                  ? Icons.error_outline_rounded
+                  : Icons.check_circle_outline_rounded,
+              size: 18,
+              color: isError ? AppColors.error : AppColors.accentBright,
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: Text(message)),
+          ],
+        ),
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(milliseconds: 2500),
-        backgroundColor: isError ? const Color(0xFF5A1F1F) : null,
+        duration: const Duration(milliseconds: 2600),
+        backgroundColor: isError
+            ? const Color(0xFF2A1214)
+            : AppColors.surfaceHigh,
       ),
     );
 }

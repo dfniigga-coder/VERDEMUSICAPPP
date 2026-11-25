@@ -1,20 +1,26 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/theme/app_theme.dart';
+import '../../core/theme/design_tokens.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/track.dart';
 import '../../providers/player_provider.dart';
+import '../../widgets/app_card.dart';
 import '../../widgets/artwork.dart';
 import '../../widgets/download_sheet.dart';
 import '../../widgets/lyrics_sheet.dart';
+import '../../widgets/play_button.dart';
 import '../../widgets/queue_sheet.dart';
 import '../../widgets/track_tile.dart';
 
-/// Полноэкранный плеер: обложка, прогресс, управление, громкость, очередь.
+/// Полноэкранный плеер: размытая обложка на фоне, крупный арт,
+/// кастомный seek-bar, управление и строка текста песни.
 class FullPlayerScreen extends StatelessWidget {
+  static const String heroTag = 'player-artwork';
+
   const FullPlayerScreen({super.key});
 
   @override
@@ -22,110 +28,177 @@ class FullPlayerScreen extends StatelessWidget {
     final player = context.watch<PlayerProvider>();
     final track = player.currentTrack;
 
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Сейчас играет'),
-        actions: [
-          if (track != null) DownloadButton(track: track),
-          if (track != null)
-            LikeButton(track: track)
-          else
-            const SizedBox.shrink(),
-          IconButton(
-            onPressed: () => showQueueSheet(context),
-            icon: const Icon(Icons.queue_music_outlined),
-            tooltip: 'Очередь',
-          ),
-          const SizedBox(width: 4),
-        ],
-      ),
-      body: buildBody(player, track),
-    );
-  }
-
-  Widget buildBody(PlayerProvider player, Track? track) {
     if (track == null) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.music_note, size: 64, color: AppTheme.textDim),
-            SizedBox(height: 16),
-            Text('Выберите трек, чтобы начать'),
-          ],
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 88,
+                height: 88,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.surfaceRaised,
+                ),
+                child: const Icon(
+                  Icons.music_note_rounded,
+                  size: 40,
+                  color: AppColors.textMuted,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Выберите трек, чтобы начать',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    return SafeArea(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final artworkSize = math.min(
-            constraints.maxWidth - 48,
-            constraints.maxHeight * 0.36,
-          );
-
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: ArtworkBackdrop(
+              url: track.artworkUrl,
+              blur: 46,
+              overlayColor: Colors.black.withValues(alpha: 0.42),
+              gradient: AppColors.playerScrim,
+            ),
+          ),
+          SafeArea(
             child: Column(
               children: [
-                const Spacer(flex: 2),
-                _Artwork(player: player, track: track, size: artworkSize),
-                const Spacer(),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      track.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      track.artist,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: AppTheme.textDim,
-                      ),
-                    ),
-                  ],
-                ),
-                const Spacer(),
-                _SeekBar(player: player),
-                const SizedBox(height: 12),
-                const _Controls(),
-                const SizedBox(height: 24),
-                _VolumeRow(player: player),
-                const SizedBox(height: 2),
-                TextButton.icon(
-                  onPressed: () => showLyricsSheet(context, track),
-                  icon: const Icon(Icons.lyrics_outlined, size: 18),
-                  label: const Text('Lyrics'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppTheme.accentGreen,
-                    textStyle: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 4,
+                _TopBar(track: track),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Column(
+                      children: [
+                        Expanded(child: _Artwork(track: track)),
+                        const SizedBox(height: 14),
+                        Text(
+                          track.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
+                            color: AppColors.text,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          track.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: AppColors.textDim,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        _SeekBar(player: player),
+                        const SizedBox(height: 4),
+                        _Controls(player: player),
+                        const SizedBox(height: 10),
+                        _VolumeRow(player: player),
+                        const SizedBox(height: 8),
+                        _LyricsCard(track: track),
+                        const SizedBox(height: 10),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 4),
               ],
             ),
-          );
-        },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TopBar extends StatelessWidget {
+  final Track track;
+
+  const _TopBar({required this.track});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 8, 2),
+      child: Row(
+        children: [
+          _CircleIconButton(
+            icon: Icons.keyboard_arrow_down_rounded,
+            tooltip: 'Свернуть',
+            onTap: () => Navigator.of(context).maybePop(),
+          ),
+          const Expanded(
+            child: Center(
+              child: Text(
+                'СЕЙЧАС ИГРАЕТ',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.6,
+                  color: AppColors.textDim,
+                ),
+              ),
+            ),
+          ),
+          LikeButton(track: track),
+          DownloadButton(track: track),
+          _CircleIconButton(
+            icon: Icons.queue_music_rounded,
+            tooltip: 'Очередь',
+            onTap: () => showQueueSheet(context),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CircleIconButton extends StatelessWidget {
+  final IconData icon;
+
+  final String tooltip;
+
+  final VoidCallback onTap;
+
+  const _CircleIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white.withValues(alpha: 0.06),
+        border: Border.all(color: AppColors.stroke),
+      ),
+      child: IconButton(
+        onPressed: onTap,
+        icon: Icon(icon, size: 20),
+        color: AppColors.text,
+        tooltip: tooltip,
+        padding: EdgeInsets.zero,
+        visualDensity: VisualDensity.compact,
       ),
     );
   }
@@ -133,67 +206,75 @@ class FullPlayerScreen extends StatelessWidget {
 
 /// Большая обложка; для аудио без арт-URL — заглушка.
 class _Artwork extends StatelessWidget {
-  final PlayerProvider player;
-
   final Track track;
 
-  final double size;
-
-  const _Artwork({
-    required this.player,
-    required this.track,
-    required this.size,
-  });
+  const _Artwork({required this.track});
 
   @override
   Widget build(BuildContext context) {
-    Widget art;
-    if (track.artworkUrl != null && track.artworkUrl!.isNotEmpty) {
-      art = ArtworkView(
-        url: track.artworkUrl,
-        size: size,
-        borderRadius: BorderRadius.circular(24),
-      );
-    } else {
-      art = Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: AppTheme.surfaceContainer,
-          borderRadius: BorderRadius.circular(24),
-        ),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Icon(Icons.library_music, size: 96, color: Colors.white10),
-            Text(
-              track.title.isEmpty ? '?' : track.title[0].toUpperCase(),
-              style: TextStyle(
-                fontSize: 72,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.accentGreen.withValues(alpha: 0.8),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final available = math.min(
+          constraints.maxWidth - 8,
+          constraints.maxHeight - 12,
+        );
+        final size = available.clamp(1.0, 1000.0).toDouble();
 
-    return Stack(
-      alignment: Alignment.bottomCenter,
-      children: [
-        art,
-        if (player.isBuffering)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: const CircularProgressIndicator(),
+        Widget art;
+        if (track.artworkUrl != null && track.artworkUrl!.isNotEmpty) {
+          art = ArtworkView(
+            url: track.artworkUrl,
+            size: size,
+            borderRadius: AppRadii.xlAll,
+          );
+        } else {
+          art = Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceRaised,
+              borderRadius: AppRadii.xlAll,
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Icon(
+                  Icons.library_music_rounded,
+                  size: size * 0.42,
+                  color: Colors.white10,
+                ),
+                Text(
+                  track.title.isEmpty ? '?' : track.title[0].toUpperCase(),
+                  style: TextStyle(
+                    fontSize: size * 0.28,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.accentBright.withValues(alpha: 0.85),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Center(
+          child: Hero(
+            tag: FullPlayerScreen.heroTag,
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: AppRadii.xlAll,
+                boxShadow: AppShadows.artwork,
+              ),
+              child: art,
+            ),
           ),
-      ],
+        );
+      },
     );
   }
 }
 
-/// Прогресс-полоса с временной отметкой и перемоткой по тапу/drag.
+/// Прогресс-полоса с буфером, временем и перемоткой по тапу/drag.
 class _SeekBar extends StatelessWidget {
   final PlayerProvider player;
 
@@ -206,15 +287,22 @@ class _SeekBar extends StatelessWidget {
     return StreamBuilder<Duration?>(
       stream: audioPlayer.durationStream,
       builder: (context, durationSnapshot) {
-        final duration = durationSnapshot.data ?? Duration.zero;
+        final duration =
+            durationSnapshot.data ?? audioPlayer.duration ?? Duration.zero;
         return StreamBuilder<Duration>(
           stream: audioPlayer.positionStream,
           builder: (context, positionSnapshot) {
             final position = positionSnapshot.data ?? Duration.zero;
-            return _ValueSeekBar(
-              player: player,
-              duration: duration,
-              position: position,
+            return StreamBuilder<Duration>(
+              stream: audioPlayer.bufferedPositionStream,
+              builder: (context, bufferedSnapshot) {
+                return _ValueSeekBar(
+                  player: player,
+                  duration: duration,
+                  position: position,
+                  buffered: bufferedSnapshot.data ?? Duration.zero,
+                );
+              },
             );
           },
         );
@@ -230,10 +318,13 @@ class _ValueSeekBar extends StatefulWidget {
 
   final Duration position;
 
+  final Duration buffered;
+
   const _ValueSeekBar({
     required this.player,
     required this.duration,
     required this.position,
+    required this.buffered,
   });
 
   @override
@@ -243,30 +334,64 @@ class _ValueSeekBar extends StatefulWidget {
 class _ValueSeekBarState extends State<_ValueSeekBar> {
   double? _dragValue;
 
+  double get _max => widget.duration.inMilliseconds.toDouble();
+
+  double get _current =>
+      _dragValue ?? widget.position.inMilliseconds.toDouble();
+
+  void _setFromDx(double dx, double width) {
+    if (_max <= 0 || width <= 0) return;
+    final value = (dx / width).clamp(0.0, 1.0).toDouble() * _max;
+    setState(() => _dragValue = value);
+  }
+
+  void _commit() {
+    final value = _dragValue;
+    if (value == null) return;
+    widget.player.seek(Duration(milliseconds: value.round()));
+    setState(() => _dragValue = null);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final max = widget.duration.inMilliseconds.toDouble();
-    final current = _dragValue ?? widget.position.inMilliseconds.toDouble();
+    final max = _max;
+    final value = max > 0 ? _current.clamp(0.0, max).toDouble() : 0.0;
+    final progress = max > 0 ? value / max : 0.0;
+    final buffered = max > 0
+        ? (widget.buffered.inMilliseconds / max).clamp(0.0, 1.0).toDouble()
+        : 0.0;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SliderTheme(
-          data: Theme.of(context).sliderTheme,
-          child: Slider(
-            value: max > 0 ? current.clamp(0.0, max).toDouble() : 0.0,
-            max: max > 0 ? max : 1.0,
-            onChanged: max > 0
-                ? (value) => setState(() => _dragValue = value)
-                : null,
-            onChangeEnd: (value) {
-              widget.player.seek(Duration(milliseconds: value.round()));
-              setState(() => _dragValue = null);
-            },
-          ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: max > 0
+                  ? (details) => _setFromDx(details.localPosition.dx, width)
+                  : null,
+              onTapUp: max > 0 ? (_) => _commit() : null,
+              onHorizontalDragStart: max > 0
+                  ? (details) => _setFromDx(details.localPosition.dx, width)
+                  : null,
+              onHorizontalDragUpdate: max > 0
+                  ? (details) => _setFromDx(details.localPosition.dx, width)
+                  : null,
+              onHorizontalDragEnd: max > 0 ? (_) => _commit() : null,
+              child: SizedBox(
+                height: 34,
+                width: width,
+                child: CustomPaint(
+                  painter: _SeekPainter(progress: progress, buffered: buffered),
+                ),
+              ),
+            );
+          },
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 2),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -276,11 +401,17 @@ class _ValueSeekBarState extends State<_ValueSeekBar> {
                       ? widget.position
                       : Duration(milliseconds: _dragValue!.round()),
                 ),
-                style: const TextStyle(fontSize: 12, color: AppTheme.textDim),
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: AppColors.textDim,
+                ),
               ),
               Text(
                 formatDuration(widget.duration),
-                style: const TextStyle(fontSize: 12, color: AppTheme.textDim),
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: AppColors.textDim,
+                ),
               ),
             ],
           ),
@@ -290,39 +421,123 @@ class _ValueSeekBarState extends State<_ValueSeekBar> {
   }
 }
 
+class _SeekPainter extends CustomPainter {
+  final double progress;
+
+  final double buffered;
+
+  const _SeekPainter({required this.progress, required this.buffered});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerY = size.height / 2;
+    const trackHeight = 4.0;
+    final radius = Radius.circular(trackHeight / 2);
+
+    final base = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, centerY - trackHeight / 2, size.width, trackHeight),
+      radius,
+    );
+    canvas.drawRRect(base, Paint()..color = AppColors.surfaceHigh);
+
+    final bufferedWidth = buffered.clamp(0.0, 1.0).toDouble() * size.width;
+    if (bufferedWidth > 0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            0,
+            centerY - trackHeight / 2,
+            bufferedWidth,
+            trackHeight,
+          ),
+          radius,
+        ),
+        Paint()..color = Colors.white.withValues(alpha: 0.14),
+      );
+    }
+
+    final progressWidth = progress.clamp(0.0, 1.0).toDouble() * size.width;
+    if (progressWidth > 0) {
+      final shaderRect = Rect.fromLTWH(
+        0,
+        centerY - trackHeight / 2,
+        math.max(progressWidth, 1),
+        trackHeight,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            0,
+            centerY - trackHeight / 2,
+            progressWidth,
+            trackHeight,
+          ),
+          radius,
+        ),
+        Paint()..shader = AppColors.accentGradient.createShader(shaderRect),
+      );
+    }
+
+    final thumbX = progress.clamp(0.0, 1.0).toDouble() * size.width;
+    canvas.drawCircle(
+      Offset(thumbX, centerY),
+      7,
+      Paint()..color = AppColors.accentBright,
+    );
+    canvas.drawCircle(
+      Offset(thumbX, centerY),
+      2.8,
+      Paint()..color = AppColors.background,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SeekPainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.buffered != buffered;
+  }
+}
+
 /// Кнопки управления: shuffle / prev / play-pause / next / repeat.
 class _Controls extends StatelessWidget {
-  const _Controls();
+  final PlayerProvider player;
+
+  const _Controls({required this.player});
 
   @override
   Widget build(BuildContext context) {
-    final player = context.watch<PlayerProvider>();
-
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
         IconButton(
           onPressed: player.hasQueue ? player.toggleShuffle : null,
           icon: const Icon(Icons.shuffle_rounded),
-          iconSize: 26,
+          iconSize: 24,
           color: player.isShuffleEnabled
-              ? AppTheme.accentGreen
-              : AppTheme.textDim,
+              ? AppColors.accentBright
+              : AppColors.textDim,
           tooltip: 'Перемешать',
         ),
         IconButton(
           onPressed: player.hasQueue ? player.previous : null,
           icon: const Icon(Icons.skip_previous_rounded),
-          iconSize: 40,
-          color: const Color(0xFFE9ECEA),
+          iconSize: 38,
+          color: AppColors.text,
           tooltip: 'Назад',
         ),
-        _PlayPauseButton(player: player),
+        PlayButton(
+          size: 70,
+          onPressed: () {
+            HapticFeedback.mediumImpact();
+            player.togglePlay();
+          },
+          isPlaying: player.isPlaying,
+          isBuffering: player.isBuffering,
+        ),
         IconButton(
           onPressed: player.hasQueue ? player.next : null,
           icon: const Icon(Icons.skip_next_rounded),
-          iconSize: 40,
-          color: const Color(0xFFE9ECEA),
+          iconSize: 38,
+          color: AppColors.text,
           tooltip: 'Вперёд',
         ),
         IconButton(
@@ -332,52 +547,15 @@ class _Controls extends StatelessWidget {
                 ? Icons.repeat_one_rounded
                 : Icons.repeat_rounded,
           ),
-          iconSize: 26,
+          iconSize: 24,
           color: player.isRepeatAll || player.isRepeatOne
-              ? AppTheme.accentGreen
-              : AppTheme.textDim,
+              ? AppColors.accentBright
+              : AppColors.textDim,
           tooltip: player.isRepeatOne
               ? 'Повтор трека'
               : (player.isRepeatAll ? 'Повтор очереди' : 'Повтор выключен'),
         ),
       ],
-    );
-  }
-}
-
-class _PlayPauseButton extends StatelessWidget {
-  final PlayerProvider player;
-
-  const _PlayPauseButton({required this.player});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 68,
-      height: 68,
-      decoration: const BoxDecoration(
-        color: AppTheme.accentGreen,
-        shape: BoxShape.circle,
-      ),
-      child: player.isBuffering
-          ? const Padding(
-              padding: EdgeInsets.all(18),
-              child: CircularProgressIndicator(
-                color: Colors.black,
-                strokeWidth: 3,
-              ),
-            )
-          : IconButton(
-              onPressed: player.togglePlay,
-              icon: Icon(
-                player.isPlaying
-                    ? Icons.pause_rounded
-                    : Icons.play_arrow_rounded,
-              ),
-              iconSize: 40,
-              color: Colors.black87,
-              tooltip: player.isPlaying ? 'Пауза' : 'Играть',
-            ),
     );
   }
 }
@@ -394,23 +572,80 @@ class _VolumeRow extends StatelessWidget {
 
     return Row(
       children: [
-        const Icon(Icons.volume_down, size: 20, color: AppTheme.textDim),
+        const Icon(
+          Icons.volume_down_rounded,
+          size: 19,
+          color: AppColors.textDim,
+        ),
         Expanded(
           child: Slider(
             value: volume,
             onChanged: (value) => player.setVolume(value),
           ),
         ),
-        const Icon(Icons.volume_up, size: 20, color: AppTheme.textDim),
+        const Icon(Icons.volume_up_rounded, size: 19, color: AppColors.textDim),
         SizedBox(
-          width: 44,
+          width: 40,
           child: Text(
             '${(volume * 100).round()}%',
-            style: const TextStyle(fontSize: 12, color: AppTheme.textDim),
+            style: const TextStyle(fontSize: 11, color: AppColors.textDim),
             textAlign: TextAlign.right,
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Строка-переход к тексту песни.
+class _LyricsCard extends StatelessWidget {
+  final Track track;
+
+  const _LyricsCard({required this.track});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      onTap: () => showLyricsSheet(context, track),
+      color: Colors.white.withValues(alpha: 0.05),
+      borderRadius: AppRadii.mdAll,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.lyrics_rounded,
+            size: 19,
+            color: AppColors.accentBright,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Текст песни',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.text,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  'Синхронно с LRCLIB',
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(fontSize: 10.5, color: AppColors.textMuted),
+                ),
+              ],
+            ),
+          ),
+          const Icon(
+            Icons.chevron_right_rounded,
+            size: 18,
+            color: AppColors.textMuted,
+          ),
+        ],
+      ),
     );
   }
 }

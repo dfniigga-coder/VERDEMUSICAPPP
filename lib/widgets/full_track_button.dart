@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../core/theme/app_theme.dart';
+import '../core/theme/design_tokens.dart';
 import '../data/models/resolved_track.dart';
 import '../data/models/track.dart';
 import '../providers/player_provider.dart';
@@ -54,7 +54,7 @@ class _FullTrackButtonState extends State<FullTrackButton> {
     return IconButton(
       onPressed: _loading ? null : _handle,
       tooltip: 'Слушать полностью (SoundCloud / YouTube)',
-      color: AppTheme.accentGreen,
+      color: AppColors.accentBright,
       icon: _loading
           ? const SizedBox(
               width: 20,

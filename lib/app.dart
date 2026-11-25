@@ -12,6 +12,8 @@ class VerdeApp extends StatelessWidget {
       title: 'Verde',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark(),
+      darkTheme: AppTheme.dark(),
+      themeMode: ThemeMode.dark,
       home: const RootShell(),
     );
   }

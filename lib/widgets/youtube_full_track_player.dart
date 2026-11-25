@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 
-import '../core/theme/app_theme.dart';
+import '../core/theme/design_tokens.dart';
 import '../data/models/resolved_track.dart';
 import '../providers/player_provider.dart';
 import 'artwork.dart';
@@ -48,7 +48,7 @@ Future<void> showYouTubeFullTrack(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    backgroundColor: AppTheme.surface,
+    backgroundColor: AppColors.surface,
     builder: (_) => YouTubeFullTrackPlayer(
       videoId: videoId,
       title: track.title,
@@ -243,7 +243,7 @@ class _YouTubeFullTrackPlayerState extends State<YouTubeFullTrackPlayer>
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: AppTheme.textDim,
+                          color: AppColors.textDim,
                           fontSize: 12,
                         ),
                       ),
@@ -290,7 +290,7 @@ class _YouTubeFullTrackPlayerState extends State<YouTubeFullTrackPlayer>
             'В фоне этот YouTube-плеер останавливается — ограничение IFrame. '
             'Обычные YouTube-треки Verde играет через прямой аудиопоток '
             'с фоновым воспроизведением.',
-            style: TextStyle(fontSize: 12, color: AppTheme.textDim),
+            style: TextStyle(fontSize: 12, color: AppColors.textDim),
           ),
           if (_wasPlaying) ...[
             const SizedBox(height: 4),

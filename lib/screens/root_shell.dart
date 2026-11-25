@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../core/theme/design_tokens.dart';
 import '../providers/download_provider.dart';
 import '../providers/player_provider.dart';
 import '../services/incoming_link_service.dart';
@@ -12,11 +14,13 @@ import 'library/library_screen.dart';
 import 'search/search_screen.dart';
 import '../widgets/common.dart';
 import '../widgets/download_sheet.dart';
+import '../widgets/glass_panel.dart';
 import '../widgets/link_download_sheet.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/pressable_scale.dart';
 
-/// Каркас: bottom nav = 3 таба (IndexedStack сохраняет состояние),
-/// над ним мини-плеер.
+/// Каркас: 3 таба (IndexedStack сохраняет состояние) и плавающая
+/// нижняя навигация. Мини-плеер и прогресс скачивания живут над ней.
 class RootShell extends StatefulWidget {
   const RootShell({super.key});
 
@@ -116,13 +120,7 @@ class _RootShellState extends State<RootShell> {
     if (message == null) return;
     player!.errorNotifier.value = null; // показать один раз
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(milliseconds: 2500),
-      ),
-    );
+    showAppSnackBar(context, message, isError: true);
   }
 
   void _showDownloadNotice() {
@@ -131,55 +129,165 @@ class _RootShellState extends State<RootShell> {
     if (notice == null) return;
     downloads?.notice.value = null;
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(notice.message),
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: notice.isError ? 4 : 3),
-        backgroundColor: notice.isError ? const Color(0xFF7A2E2E) : null,
-      ),
-    );
+    showAppSnackBar(context, notice.message, isError: notice.isError);
+  }
+
+  void _selectTab(int index) {
+    if (index == _tabIndex) return;
+    HapticFeedback.selectionClick();
+    setState(() => _tabIndex = index);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Column(
+      backgroundColor: AppColors.background,
+      body: Stack(
         children: [
-          Expanded(
+          Positioned.fill(
             child: IndexedStack(
               index: _tabIndex,
               children: [
-                HomeScreen(isActive: _tabIndex == 0),
+                HomeScreen(
+                  isActive: _tabIndex == 0,
+                  onOpenLibrary: () => _selectTab(2),
+                  onOpenSearch: () => _selectTab(1),
+                ),
                 const SearchScreen(),
                 const LibraryScreen(),
               ],
             ),
           ),
-          const DownloadProgressBanner(),
-          const MiniPlayerBar(),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(
+              top: false,
+              minimum: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const DownloadProgressBanner(),
+                  const MiniPlayerBar(),
+                  const SizedBox(height: 8),
+                  _FloatingNav(selectedIndex: _tabIndex, onSelect: _selectTab),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tabIndex,
-        onDestinationSelected: (index) => setState(() => _tabIndex = index),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
+    );
+  }
+}
+
+/// Плавающая навигация-капсула с blur и зелёной пилюлей активного таба.
+class _FloatingNav extends StatelessWidget {
+  final int selectedIndex;
+
+  final ValueChanged<int> onSelect;
+
+  const _FloatingNav({required this.selectedIndex, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassPanel(
+      blur: 22,
+      color: AppColors.surfaceRaised.withValues(alpha: 0.9),
+      borderRadius: AppRadii.xlAll,
+      padding: const EdgeInsets.all(6),
+      child: Row(
+        children: [
+          _NavItem(
+            icon: Icons.home_rounded,
             label: 'Главная',
+            selected: selectedIndex == 0,
+            onTap: () => onSelect(0),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.search),
-            selectedIcon: Icon(Icons.search),
+          _NavItem(
+            icon: Icons.search_rounded,
             label: 'Поиск',
+            selected: selectedIndex == 1,
+            onTap: () => onSelect(1),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.library_music_outlined),
-            selectedIcon: Icon(Icons.library_music),
+          _NavItem(
+            icon: Icons.library_music_rounded,
             label: 'Библиотека',
+            selected: selectedIndex == 2,
+            onTap: () => onSelect(2),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _NavItem extends StatelessWidget {
+  final IconData icon;
+
+  final String label;
+
+  final bool selected;
+
+  final VoidCallback onTap;
+
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: PressableScale(
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(AppRadii.lg),
+            child: AnimatedContainer(
+              duration: AppDurations.normal,
+              curve: Curves.easeOutCubic,
+              height: 48,
+              decoration: BoxDecoration(
+                color: selected
+                    ? AppColors.accentSoft(0.16)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(AppRadii.lg),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    icon,
+                    size: 22,
+                    color: selected
+                        ? AppColors.accentBright
+                        : AppColors.textDim,
+                  ),
+                  if (selected) ...[
+                    const SizedBox(width: 7),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.accentBright,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

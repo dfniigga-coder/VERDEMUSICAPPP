@@ -4,13 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/errors/app_exceptions.dart';
-import '../../core/theme/app_theme.dart';
+import '../../core/theme/design_tokens.dart';
 import '../../core/utils/formatters.dart';
+import '../../data/models/playlist.dart';
 import '../../data/models/track.dart';
+import '../../data/repositories/local_tracks_repository.dart';
 import '../../data/repositories/music_repository.dart';
 import '../../providers/library_provider.dart';
-import '../../data/repositories/local_tracks_repository.dart';
 import '../../providers/player_provider.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/artwork.dart';
 import '../../widgets/common.dart';
 import '../../widgets/dialogs.dart';
 import '../../widgets/track_menu.dart';
@@ -32,7 +35,7 @@ class PlaylistDetailsScreen extends StatelessWidget {
       return Scaffold(
         appBar: AppBar(title: const Text('Плейлист')),
         body: const EmptyState(
-          icon: Icons.error_outline,
+          icon: Icons.error_outline_rounded,
           title: 'Плейлист не найден',
         ),
       );
@@ -43,38 +46,38 @@ class PlaylistDetailsScreen extends StatelessWidget {
         title: Text(playlist.name, maxLines: 1),
         actions: [
           IconButton(
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert_rounded),
             onPressed: () => _showHeaderMenu(context),
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _addTracks(context),
-        child: const Icon(Icons.add),
+        child: const Icon(Icons.add_rounded),
       ),
       body: playlist.tracks.isEmpty
           ? EmptyState(
-              icon: Icons.queue_music_outlined,
+              icon: Icons.queue_music_rounded,
               title: 'Плейлист пуст',
               subtitle:
                   'Нажмите «+», чтобы добавить треки из поиска или '
                   'с устройства',
               action: FilledButton.icon(
                 onPressed: () => _addTracks(context),
-                icon: const Icon(Icons.add),
+                icon: const Icon(Icons.add_rounded, size: 19),
                 label: const Text('Добавить треки'),
               ),
             )
           : ListView.builder(
-              padding: const EdgeInsets.only(bottom: 110),
+              padding: const EdgeInsets.fromLTRB(
+                8,
+                4,
+                8,
+                AppSpacing.pageBottom,
+              ),
               itemCount: playlist.tracks.length + 1,
               itemBuilder: (context, index) {
-                if (index == 0) {
-                  return _Header(
-                    playlistName: playlist.name,
-                    trackCount: playlist.trackCount,
-                  );
-                }
+                if (index == 0) return _Header(playlist: playlist);
                 final track = playlist.tracks[index - 1];
                 final trackIndex = index - 1;
                 return TrackTile(
@@ -95,8 +98,8 @@ class PlaylistDetailsScreen extends StatelessWidget {
                     },
                   ),
                   trailing: IconButton(
-                    icon: const Icon(Icons.close, size: 20),
-                    color: AppTheme.textDim,
+                    icon: const Icon(Icons.close_rounded, size: 19),
+                    color: AppColors.textMuted,
                     onPressed: () {
                       context.read<LibraryProvider>().removeTrackFromPlaylist(
                         playlistId,
@@ -124,6 +127,29 @@ class PlaylistDetailsScreen extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        playlist.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    Text(
+                      trackCountLabel(playlist.trackCount),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(),
               ListTile(
                 leading: const Icon(Icons.play_arrow_rounded),
                 title: const Text('Включить плейлист'),
@@ -138,7 +164,7 @@ class PlaylistDetailsScreen extends StatelessWidget {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.shuffle),
+                leading: const Icon(Icons.shuffle_rounded),
                 title: const Text('Перемешать и играть'),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
@@ -170,7 +196,7 @@ class PlaylistDetailsScreen extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(
-                  Icons.delete_outline,
+                  Icons.delete_outline_rounded,
                   color: AppColors.deleteRed,
                 ),
                 title: const Text(
@@ -190,6 +216,7 @@ class PlaylistDetailsScreen extends StatelessWidget {
                   showAppSnackBar(context, 'Плейлист удалён');
                 },
               ),
+              const SizedBox(height: 8),
             ],
           ),
         );
@@ -206,31 +233,103 @@ class PlaylistDetailsScreen extends StatelessWidget {
   }
 }
 
-/// Шапка плейлиста.
+/// Шапка плейлиста: мозаичная обложка, название, счётчик и действия.
 class _Header extends StatelessWidget {
-  final String playlistName;
+  final Playlist playlist;
 
-  final int trackCount;
-
-  const _Header({required this.playlistName, required this.trackCount});
+  const _Header({required this.playlist});
 
   @override
   Widget build(BuildContext context) {
+    final tracks = playlist.tracks;
+    final firstArtwork = tracks.isEmpty ? null : tracks.first.artworkUrl;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            playlistName,
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            trackCountLabel(trackCount),
-            style: const TextStyle(color: AppTheme.textDim, fontSize: 13),
-          ),
-        ],
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+      child: AppCard(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.accentDeep.withValues(alpha: 0.55),
+            AppColors.surfaceRaised,
+          ],
+        ),
+        borderRadius: AppRadii.xlAll,
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            ArtworkView(
+              size: 108,
+              url: firstArtwork,
+              borderRadius: AppRadii.mdAll,
+              placeholderIcon: Icons.queue_music_rounded,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'ПЛЕЙЛИСТ',
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.3,
+                      color: AppColors.accentBright,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    playlist.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.4,
+                      height: 1.2,
+                      color: AppColors.text,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    trackCountLabel(tracks.length),
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: AppColors.textDim,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      FilledButton.icon(
+                        onPressed: () => context
+                            .read<PlayerProvider>()
+                            .playTracks(tracks, startIndex: 0),
+                        icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                        label: const Text('Слушать'),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () => context
+                            .read<PlayerProvider>()
+                            .playTracks(tracks, startIndex: 0, shuffle: true),
+                        icon: const Icon(Icons.shuffle_rounded, size: 20),
+                        color: AppColors.text,
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.white.withValues(alpha: 0.08),
+                          shape: const CircleBorder(),
+                        ),
+                        tooltip: 'Перемешать',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -286,7 +385,7 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
         _error = e.message;
         _loading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _error = 'Не удалось выполнить поиск.';
@@ -344,15 +443,38 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: MediaQuery.of(context).size.height * 0.78,
+      height: MediaQuery.of(context).size.height * 0.82,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const SizedBox(height: 10),
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.stroke,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+          ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Text(
-              'Добавить треки',
-              style: Theme.of(context).textTheme.titleLarge,
+            padding: const EdgeInsets.fromLTRB(20, 14, 12, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Добавить треки',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  color: AppColors.textDim,
+                  tooltip: 'Закрыть',
+                ),
+              ],
             ),
           ),
           Padding(
@@ -366,7 +488,7 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
                 ),
                 ButtonSegment(
                   value: 1,
-                  icon: Icon(Icons.smartphone, size: 18),
+                  icon: Icon(Icons.smartphone_rounded, size: 18),
                   label: Text('Телефон'),
                 ),
               ],
@@ -392,7 +514,7 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
                 hintText: _sourceIndex == 0
                     ? 'Поиск по трекам Audius'
                     : 'Фильтр по названию',
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: const Icon(Icons.search_rounded, size: 21),
               ),
             ),
           ),
@@ -408,16 +530,27 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
     }
     if (_error != null) {
       return Center(
-        child: Text(_error!, style: const TextStyle(color: AppTheme.textDim)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.textDim),
+          ),
+        ),
       );
     }
     if (_results.isEmpty) {
       return Center(
-        child: Text(
-          _query.isEmpty
-              ? 'Наберите запрос, чтобы найти треки'
-              : 'Ничего не нашлось',
-          style: const TextStyle(color: AppTheme.textDim),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            _query.isEmpty
+                ? 'Наберите запрос, чтобы найти треки'
+                : 'Ничего не нашлось',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.textDim),
+          ),
         ),
       );
     }
@@ -439,13 +572,18 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
         : _results;
 
     return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 24),
       itemCount: visible.length,
       itemBuilder: (context, index) {
         final track = visible[index];
         final added = inPlaylist.contains(track.id);
         return ListTile(
           onTap: added ? null : () => _add(track),
+          leading: ArtworkView(
+            size: 44,
+            url: track.artworkUrl,
+            borderRadius: AppRadii.smAll,
+          ),
           title: Text(
             track.title,
             maxLines: 1,
@@ -455,11 +593,14 @@ class _AddTracksSheetState extends State<_AddTracksSheet> {
             track.artist,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: AppTheme.textDim, fontSize: 12),
+            style: const TextStyle(color: AppColors.textDim, fontSize: 12),
           ),
           trailing: added
-              ? const Icon(Icons.check, color: AppTheme.accentGreen)
-              : const Icon(Icons.playlist_add, color: AppTheme.textDim),
+              ? const Icon(Icons.check_rounded, color: AppColors.accentBright)
+              : const Icon(
+                  Icons.playlist_add_rounded,
+                  color: AppColors.textMuted,
+                ),
         );
       },
     );

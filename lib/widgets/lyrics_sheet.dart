@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/theme/app_theme.dart';
+import '../core/theme/design_tokens.dart';
 import '../data/models/lyrics.dart';
 import '../data/models/track.dart';
 import '../providers/player_provider.dart';
@@ -55,8 +55,8 @@ class _LyricsSheetState extends State<LyricsSheet> {
     return Container(
       height: height,
       decoration: const BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Column(
         children: [
@@ -65,7 +65,7 @@ class _LyricsSheetState extends State<LyricsSheet> {
             width: 42,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
+              color: AppColors.stroke,
               borderRadius: BorderRadius.circular(99),
             ),
           ),
@@ -81,7 +81,9 @@ class _LyricsSheetState extends State<LyricsSheet> {
                         'Текст песни',
                         style: TextStyle(
                           fontSize: 20,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.4,
+                          color: AppColors.text,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -91,7 +93,7 @@ class _LyricsSheetState extends State<LyricsSheet> {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 12,
-                          color: AppTheme.textDim,
+                          color: AppColors.textDim,
                         ),
                       ),
                     ],
@@ -100,7 +102,7 @@ class _LyricsSheetState extends State<LyricsSheet> {
                 IconButton(
                   onPressed: () => Navigator.of(context).pop(),
                   icon: const Icon(Icons.close_rounded),
-                  color: AppTheme.textDim,
+                  color: AppColors.textDim,
                   tooltip: 'Закрыть',
                 ),
               ],
@@ -133,7 +135,7 @@ class _LyricsSheetState extends State<LyricsSheet> {
             padding: EdgeInsets.only(bottom: 8),
             child: Text(
               'Текст: LRCLIB',
-              style: TextStyle(fontSize: 10, color: AppTheme.textDim),
+              style: TextStyle(fontSize: 10, color: AppColors.textDim),
             ),
           ),
         ],
@@ -267,7 +269,7 @@ class _LyricLineView extends StatelessWidget {
             fontSize: active ? 21 : 17,
             fontWeight: active ? FontWeight.w700 : FontWeight.w500,
             height: 1.35,
-            color: active ? AppTheme.accentGreen : AppTheme.textDim,
+            color: active ? AppColors.accentBright : AppColors.textDim,
           ),
           child: Text(line.text),
         ),
@@ -290,7 +292,7 @@ class _PlainLyrics extends StatelessWidget {
         style: const TextStyle(
           fontSize: 17,
           height: 1.55,
-          color: Color(0xFFE9ECEA),
+          color: AppColors.text,
         ),
       ),
     );
@@ -313,7 +315,7 @@ class _EmptyLyrics extends StatelessWidget {
             const Icon(
               Icons.lyrics_outlined,
               size: 42,
-              color: AppTheme.textDim,
+              color: AppColors.textDim,
             ),
             const SizedBox(height: 12),
             const Text(
@@ -324,7 +326,7 @@ class _EmptyLyrics extends StatelessWidget {
             const Text(
               'LRCLIB не нашёл текст для этого трека. Попробуйте обновить.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: AppTheme.textDim),
+              style: TextStyle(fontSize: 13, color: AppColors.textDim),
             ),
             const SizedBox(height: 12),
             TextButton.icon(
@@ -348,7 +350,7 @@ class _InstrumentalLyrics extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.music_off_outlined, size: 42, color: AppTheme.textDim),
+          Icon(Icons.music_off_outlined, size: 42, color: AppColors.textDim),
           SizedBox(height: 12),
           Text(
             'Инструментальная композиция',
@@ -357,7 +359,7 @@ class _InstrumentalLyrics extends StatelessWidget {
           SizedBox(height: 6),
           Text(
             'В этом треке нет слов.',
-            style: TextStyle(fontSize: 13, color: AppTheme.textDim),
+            style: TextStyle(fontSize: 13, color: AppColors.textDim),
           ),
         ],
       ),

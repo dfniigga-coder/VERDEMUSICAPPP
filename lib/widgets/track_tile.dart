@@ -3,16 +3,18 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/theme/app_theme.dart';
+import '../core/theme/design_tokens.dart';
 import '../data/models/track.dart';
 import '../data/repositories/local_tracks_repository.dart';
 import '../providers/library_provider.dart';
 import '../providers/player_provider.dart';
 import 'artwork.dart';
+import 'equalizer_bars.dart';
+import 'source_badge.dart';
 
 /// Строка трека: обложка, название, исполнитель, опциональный trailing.
 ///
-/// Родитель отвечает за поведение по нажатию (обычно —_playTracks по списку).
+/// Родитель отвечает за поведение по нажатию (обычно — playTracks по списку).
 class TrackTile extends StatelessWidget {
   final Track track;
 
@@ -35,67 +37,105 @@ class TrackTile extends StatelessWidget {
     final isCurrent = context.select<PlayerProvider, bool>(
       (player) => player.currentTrack?.id == track.id,
     );
+    final isPlaying = context.select<PlayerProvider, bool>(
+      (player) => isCurrent && player.isPlaying,
+    );
 
     return ListTile(
       onTap: onTap,
       onLongPress: onLongPress,
-      tileColor: isCurrent
-          ? AppTheme.accentGreen.withValues(alpha: 0.08)
-          : null,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      leading: _leading(),
+      tileColor: isCurrent ? AppColors.accentSoft(0.08) : null,
+      shape: const RoundedRectangleBorder(borderRadius: AppRadii.mdAll),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+      leading: _leading(isCurrent: isCurrent, isPlaying: isPlaying),
       title: Text(
         track.title,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          fontWeight: FontWeight.w500,
-          color: isCurrent ? AppTheme.accentGreen : const Color(0xFFE9ECEA),
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+          color: isCurrent ? AppColors.accentBright : AppColors.text,
         ),
       ),
-      subtitle: Row(
-        children: [
-          Expanded(
-            child: Text(
-              track.artist,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: AppTheme.textDim, fontSize: 12),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                track.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+              ),
             ),
-          ),
-          if (track.isPreview) ...[
-            const SizedBox(width: 6),
-            const _TrackBadge(
-              text: 'превью 30 с',
-              icon: Icons.timer_outlined,
-              foreground: Color(0xFFF0C674),
-              background: Color(0x33F0C674),
-            ),
+            if (track.isPreview) ...[
+              const SizedBox(width: 6),
+              const PreviewBadge(),
+            ],
+            if (track.source != TrackSource.local) ...[
+              const SizedBox(width: 6),
+              TrackSourceBadge(track: track),
+            ],
           ],
-          if (track.source != TrackSource.local) ...[
-            const SizedBox(width: 6),
-            _TrackBadge(
-              text: track.source.label,
-              icon: _sourceIcon(track.source),
-            ),
-          ],
-        ],
+        ),
       ),
       trailing: trailing ?? _duration(),
     );
   }
 
-  Widget _leading() {
+  Widget _leading({required bool isCurrent, required bool isPlaying}) {
+    Widget art;
     if (track.source == TrackSource.local) {
       final songId = track.localSongId;
-      if (songId != null) return _LocalLeading(songId: songId);
-      return ArtworkView(
+      if (songId != null) {
+        art = _LocalLeading(songId: songId);
+      } else {
+        art = ArtworkView(
+          size: 52,
+          url: track.artworkUrl,
+          borderRadius: AppRadii.smAll,
+          placeholderIcon: Icons.audio_file_outlined,
+        );
+      }
+    } else {
+      art = ArtworkView(
         size: 52,
         url: track.artworkUrl,
-        placeholderIcon: Icons.audio_file_outlined,
+        borderRadius: AppRadii.smAll,
       );
     }
-    return ArtworkView(size: 52, url: track.artworkUrl);
+
+    if (!isCurrent) return art;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        art,
+        Positioned(
+          right: -2,
+          bottom: -2,
+          child: Container(
+            width: 20,
+            height: 20,
+            decoration: BoxDecoration(
+              color: AppColors.background,
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: Center(
+              child: EqualizerBars(
+                height: 9,
+                barWidth: 2,
+                gap: 1.5,
+                playing: isPlaying,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget? _duration() {
@@ -104,7 +144,7 @@ class TrackTile extends StatelessWidget {
     final s = (track.durationSec! % 60).toString().padLeft(2, '0');
     return Text(
       '$m:$s',
-      style: const TextStyle(color: AppTheme.textDim, fontSize: 12),
+      style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
     );
   }
 }
@@ -144,75 +184,11 @@ class _LocalLeadingState extends State<_LocalLeading> {
 
   @override
   Widget build(BuildContext context) {
-    return LocalArtworkView(size: 52, artwork: _artwork);
-  }
-}
-
-/// Небольшой значок источника или пометка «превью».
-class _TrackBadge extends StatelessWidget {
-  final String text;
-
-  final IconData icon;
-
-  final Color foreground;
-
-  final Color background;
-
-  const _TrackBadge({
-    required this.text,
-    required this.icon,
-    this.foreground = AppTheme.textDim,
-    this.background = const Color(0x1AFFFFFF),
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 10, color: foreground),
-          const SizedBox(width: 3),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 9.5,
-              height: 1.2,
-              fontWeight: FontWeight.w600,
-              color: foreground,
-            ),
-          ),
-        ],
-      ),
+    return LocalArtworkView(
+      size: 52,
+      artwork: _artwork,
+      borderRadius: AppRadii.smAll,
     );
-  }
-}
-
-IconData _sourceIcon(TrackSource source) {
-  switch (source) {
-    case TrackSource.audius:
-      return Icons.waves;
-    case TrackSource.deezer:
-      return Icons.graphic_eq;
-    case TrackSource.itunes:
-      return Icons.music_note;
-    case TrackSource.jamendo:
-      return Icons.public;
-    case TrackSource.archive:
-      return Icons.account_balance;
-    case TrackSource.external:
-      return Icons.link;
-    case TrackSource.local:
-      return Icons.folder;
-    case TrackSource.soundcloud:
-      return Icons.cloud;
-    case TrackSource.youtube:
-      return Icons.smart_display;
   }
 }
 
@@ -230,8 +206,11 @@ class LikeButton extends StatelessWidget {
 
     return IconButton(
       onPressed: () => context.read<LibraryProvider>().toggleLike(track),
-      icon: Icon(liked ? Icons.favorite : Icons.favorite_border_outlined),
-      color: liked ? AppTheme.accentGreen : AppTheme.textDim,
+      icon: Icon(
+        liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+        size: 21,
+      ),
+      color: liked ? AppColors.accentBright : AppColors.textMuted,
       tooltip: liked ? 'Убрать из «Мне нравится»' : 'Добавить в «Мне нравится»',
     );
   }

@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../core/theme/app_theme.dart';
+import '../core/theme/design_tokens.dart';
 
 /// Геометрический знак Verde в духе логотипа Perplexity:
 /// контурные диагонали и тонкая вертикальная ось.
@@ -18,7 +18,7 @@ class VerdeLogoMark extends StatelessWidget {
   const VerdeLogoMark({
     super.key,
     this.size = 30,
-    this.color = AppTheme.accentGreen,
+    this.color = AppColors.accent,
     this.strokeWidth = 4,
   });
 
@@ -46,8 +46,8 @@ class VerdeLogo extends StatelessWidget {
     super.key,
     this.markSize = 30,
     this.fontSize = 27,
-    this.markColor = AppTheme.accentGreen,
-    this.textColor = const Color(0xFFE9ECEA),
+    this.markColor = AppColors.accent,
+    this.textColor = AppColors.text,
     this.showWordmark = true,
   });
 
@@ -65,8 +65,8 @@ class VerdeLogo extends StatelessWidget {
             style: TextStyle(
               color: textColor,
               fontSize: fontSize,
-              fontWeight: FontWeight.w600,
-              letterSpacing: -1.1,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -1.2,
               height: 1,
             ),
           ),

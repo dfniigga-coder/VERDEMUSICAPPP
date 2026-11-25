@@ -1,8 +1,24 @@
 # Verde 🎵
 
 Мобильный музыкальный плеер на Flutter в стиле Spotify / YouTube Music.
-Тёмная тема, зелёный акцент, нативный Android-плеер с фоновым
-воспроизведением и уведомлением на экране блокировки.
+Тёмная тема «Deep Forest 2.0», зелёный акцент, нативный Android-плеер
+с фоновым воспроизведением и уведомлением на экране блокировки.
+
+## Дизайн
+
+- **Deep Forest 2.0** — глубокий графит с зелёным подтоном, три уровня
+  поверхностей, тонкие границы вместо тяжёлых теней и мягкое свечение
+  акцента.
+- **Manrope** (OFL, кириллица) встроен в APK: Regular / Medium / SemiBold /
+  Bold / ExtraBold, без сетевой загрузки шрифтов.
+- Палитра и радиусы собраны в `lib/core/theme/design_tokens.dart`:
+  background `#070A08`, surface `#0D120F`, accent `#1DB954`,
+  accentBright `#3DE27F`, text `#EDF3EF`.
+- Плавающая blur-навигация, карточный мини-плеер со свайпом вверх,
+  hero-блок на главной, мозаичные обложки плейлистов и кастомный
+  seek-bar с буфером.
+- Анимации 160–320 мс `easeOutCubic`, press-scale, skeleton-заглушки
+  вместо спиннеров, hero-переход обложки из мини-плеера в полноэкранный.
 
 ## Источники музыки
 
@@ -68,11 +84,11 @@
   «Скачать с YouTube Music» в библиотеке или Android-меню «Поделиться»
   (а также открытие YouTube-ссылки сразу в Verde). Плейлисты
   отклоняются с подсказкой — нужна ссылка на конкретный трек
-- Плеер: play/pause, next/prev, перемотка, громкость, shuffle,
-  repeat (off / все / трек)
-- Мини-плеер с прогрессом; тап открывает полноэкранный плеер
-  (обложка, управление, очередь)
-- Текст песни: кнопка «Lyrics» в полноэкранном плеере, настоящие тексты
+- Плеер: play/pause, next/prev, кастомная перемотка с буфером,
+  громкость, shuffle, repeat (off / все / трек)
+- Мини-плеер-карточка с размытой обложкой и прогрессом; тап или свайп
+  вверх открывает полноэкранный плеер (hero-обложка, управление, очередь)
+- Текст песни: строка «Текст песни» в полноэкранном плеере, настоящие тексты
   из LRCLIB без API-ключа. Синхронные строки подсвечиваются, плавно
   прокручиваются и работают как перемотка по тапу; если текста нет —
   честное «Текст не найден», без генерации
@@ -94,7 +110,7 @@
 
 | Что | Чем |
 |---|---|
-| UI | Flutter, Material 3, тёмная тема, SeedColor `#1DB954` |
+| UI | Flutter, Material 3, Deep Forest 2.0, Manrope, SeedColor `#1DB954` |
 | Аудио | `just_audio` (playlist API 0.10), `audio_service` 0.18 |
 | Состояние | `provider` |
 | Сеть | `http` (Deezer, iTunes, Audius, Jamendo, Internet Archive, YouTube, LRCLIB) |
@@ -109,7 +125,9 @@
 ```
 lib/
   app.dart, main.dart            # вход, DI через MultiProvider
-  core/                          # тема, константы, ошибки, форматтеры
+  core/theme/design_tokens.dart  # палитра, отступы, радиусы, анимации
+  core/theme/app_theme.dart      # Material 3 + Manrope
+  core/                          # константы, ошибки, форматтеры
   data/
     api/audius_api.dart          # клиент Audius (bootstrap → discovery)
     api/search_api.dart          # параллельный мультипоиск и нормализация
@@ -126,10 +144,12 @@ lib/
   services/media_store.dart           # сохранение в Music/Verde
   services/recommendation_service.dart # семена из ваших песен, Last.fm, Deezer
   screens/                       # home, search, library, settings, player
-  widgets/                       # мини-плеер, очередь, меню, artwork,
-                                 # карточки подборок, «Слушать полностью»,
-                                 # кнопка/лист скачивания, лист «ссылка → MP3»,
-                                 # YouTube iframe...
+  widgets/                       # app_card, glass_panel, skeleton, play_button,
+                                 # equalizer_bars, source_badge, мини-плеер,
+                                 # очередь, меню, artwork, карточки подборок,
+                                 # «Слушать полностью», лист скачивания,
+                                 # лист «ссылка → MP3», YouTube iframe...
+assets/fonts/                    # Manrope Regular…ExtraBold + OFL.txt
 android/app/src/main/
   AndroidManifest.xml            # разрешения, audio_service, SEND/VIEW-фильтры
   kotlin/.../MainActivity.kt     # MediaStore + каналы входящих ссылок
@@ -143,8 +163,7 @@ android/app/src/main/
 
 1. Скачивает Flutter 3.47.9 и JDK 17.
 2. `flutter pub get` → `flutter analyze` → `flutter build apk --release`.
-3. Публикует `verde-release-apk` как artifact — на странице последнего
-   прогона Actions, раздел **Artifacts** (см. фото APK для установки).
+3. Публикует готовый `app-release.apk` в GitHub Release `latest-apk`.
 
 Сборку можно запустить вручную: вкладка *Actions* → *build* → *Run workflow*.
 

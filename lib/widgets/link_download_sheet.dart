@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../core/theme/app_theme.dart';
+import '../core/theme/design_tokens.dart';
 import '../core/utils/formatters.dart';
 import '../data/models/track.dart';
 import '../providers/download_provider.dart';
@@ -28,7 +28,7 @@ Future<void> showLinkDownloadSheet(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    backgroundColor: AppTheme.surface,
+    backgroundColor: AppColors.surface,
     builder: (_) =>
         LinkDownloadSheet(initialUrl: initialUrl, autoStart: autoStart),
   );
@@ -209,7 +209,7 @@ class _LinkDownloadSheetState extends State<LinkDownloadSheet> {
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: AppTheme.textDim.withValues(alpha: 0.4),
+                  color: AppColors.stroke,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -219,7 +219,7 @@ class _LinkDownloadSheetState extends State<LinkDownloadSheet> {
               children: [
                 Icon(
                   Icons.music_video_outlined,
-                  color: AppTheme.accentGreen,
+                  color: AppColors.accentBright,
                   size: 26,
                 ),
                 SizedBox(width: 10),
@@ -236,7 +236,7 @@ class _LinkDownloadSheetState extends State<LinkDownloadSheet> {
               'Скопируйте ссылку на трек в YouTube Music и вставьте её сюда — '
               'приложение скачает аудио и конвертирует его в MP3.',
               style: TextStyle(
-                color: AppTheme.textDim,
+                color: AppColors.textDim,
                 fontSize: 12,
                 height: 1.45,
               ),
@@ -283,14 +283,14 @@ class _LinkDownloadSheetState extends State<LinkDownloadSheet> {
                   const Icon(
                     Icons.error_outline,
                     size: 17,
-                    color: Color(0xFFE57373),
+                    color: AppColors.error,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       _error!,
                       style: const TextStyle(
-                        color: Color(0xFFE57373),
+                        color: AppColors.error,
                         fontSize: 12,
                         height: 1.4,
                       ),
@@ -312,14 +312,14 @@ class _LinkDownloadSheetState extends State<LinkDownloadSheet> {
               const Text(
                 'MP3, 192 кбит/с · файл сохранится в Music/Verde',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppTheme.textDim, fontSize: 11),
+                style: TextStyle(color: AppColors.textDim, fontSize: 11),
               ),
             ],
             const SizedBox(height: 16),
             const Text(
               'Скачивайте только тот контент, на который у вас есть права.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppTheme.textDim, fontSize: 10),
+              style: TextStyle(color: AppColors.textDim, fontSize: 10),
             ),
           ],
         ),
@@ -340,7 +340,7 @@ class _TrackPreview extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.surfaceContainer,
+        color: AppColors.surfaceRaised,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -365,7 +365,10 @@ class _TrackPreview extends StatelessWidget {
                   track.artist,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppTheme.textDim, fontSize: 12),
+                  style: const TextStyle(
+                    color: AppColors.textDim,
+                    fontSize: 12,
+                  ),
                 ),
                 if (duration != null) ...[
                   const SizedBox(height: 4),
@@ -374,13 +377,13 @@ class _TrackPreview extends StatelessWidget {
                       const Icon(
                         Icons.schedule,
                         size: 13,
-                        color: AppTheme.textDim,
+                        color: AppColors.textDim,
                       ),
                       const SizedBox(width: 4),
                       Text(
                         formatDuration(Duration(seconds: duration)),
                         style: const TextStyle(
-                          color: AppTheme.textDim,
+                          color: AppColors.textDim,
                           fontSize: 11,
                         ),
                       ),

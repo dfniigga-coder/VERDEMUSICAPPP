@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/theme/app_theme.dart';
+import '../core/theme/design_tokens.dart';
 import '../core/utils/formatters.dart';
 import '../data/models/track.dart';
 import '../providers/library_provider.dart';
@@ -55,7 +55,7 @@ Future<void> showTrackMenu(
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            color: AppTheme.textDim,
+                            color: AppColors.textDim,
                             fontSize: 12,
                           ),
                         ),
@@ -69,7 +69,7 @@ Future<void> showTrackMenu(
               ListTile(
                 leading: const Icon(
                   Icons.play_circle_outline,
-                  color: AppTheme.accentGreen,
+                  color: AppColors.accentBright,
                 ),
                 title: const Text('Слушать полностью'),
                 subtitle: const Text(
@@ -115,7 +115,7 @@ Future<void> showTrackMenu(
             ListTile(
               leading: Icon(
                 isLiked ? Icons.favorite : Icons.favorite_border_rounded,
-                color: isLiked ? AppTheme.accentGreen : null,
+                color: isLiked ? AppColors.accentBright : null,
               ),
               title: Text(
                 isLiked ? 'Убрать из «Мне нравится»' : 'В «Мне нравится»',
@@ -219,7 +219,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Track track) async {
                         ? const Center(
                             child: Text(
                               'Плейлистов пока нет',
-                              style: TextStyle(color: AppTheme.textDim),
+                              style: TextStyle(color: AppColors.textDim),
                             ),
                           )
                         : ListView.builder(
@@ -237,7 +237,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Track track) async {
                                 trailing: already
                                     ? const Icon(
                                         Icons.check,
-                                        color: AppTheme.accentGreen,
+                                        color: AppColors.accentBright,
                                       )
                                     : null,
                                 enabled: !already,

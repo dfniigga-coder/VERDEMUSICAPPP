@@ -4,7 +4,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
-import '../core/theme/app_theme.dart';
+import '../core/theme/design_tokens.dart';
 
 /// Обложка трека/подборки: сетевая картинка с кэшированием,
 /// либо аккуратная заглушка с иконкой музыки.
@@ -24,7 +24,7 @@ class ArtworkView extends StatelessWidget {
     super.key,
     required this.size,
     this.url,
-    this.borderRadius = const BorderRadius.all(Radius.circular(10)),
+    this.borderRadius = AppRadii.smAll,
     this.placeholderIcon = Icons.music_note,
   }) : assert(size > 0);
 
@@ -34,10 +34,14 @@ class ArtworkView extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: AppTheme.surfaceContainer,
+        color: AppColors.surfaceRaised,
         borderRadius: borderRadius,
       ),
-      child: Icon(placeholderIcon, size: size * 0.38, color: AppTheme.textDim),
+      child: Icon(
+        placeholderIcon,
+        size: size * 0.38,
+        color: AppColors.textMuted,
+      ),
     );
 
     if (url == null || url!.isEmpty) return placeholder;
@@ -55,7 +59,7 @@ class ArtworkView extends StatelessWidget {
         fit: fit,
         memCacheWidth: cacheSize,
         memCacheHeight: cacheSize,
-        fadeInDuration: const Duration(milliseconds: 200),
+        fadeInDuration: const Duration(milliseconds: 220),
         placeholder: (context, url) => placeholder,
         errorWidget: (context, url, error) => placeholder,
         color: tint,
@@ -83,11 +87,11 @@ class ArtworkView extends StatelessWidget {
             if (size >= 80)
               image(
                 fit: BoxFit.cover,
-                tint: Colors.black.withValues(alpha: 0.28),
+                tint: Colors.black.withValues(alpha: 0.32),
                 blurSigma: 14,
               )
             else
-              ColoredBox(color: AppTheme.surfaceContainer),
+              ColoredBox(color: AppColors.surfaceRaised),
             image(fit: BoxFit.contain),
           ],
         ),
@@ -108,7 +112,7 @@ class LocalArtworkView extends StatelessWidget {
     super.key,
     required this.size,
     required this.artwork,
-    this.borderRadius = const BorderRadius.all(Radius.circular(10)),
+    this.borderRadius = AppRadii.smAll,
   });
 
   @override
@@ -122,13 +126,13 @@ class LocalArtworkView extends StatelessWidget {
             width: size,
             height: size,
             decoration: BoxDecoration(
-              color: AppTheme.surfaceContainer,
+              color: AppColors.surfaceRaised,
               borderRadius: borderRadius,
             ),
             child: Icon(
               Icons.library_music,
               size: size * 0.38,
-              color: AppTheme.textDim,
+              color: AppColors.textMuted,
             ),
           );
         }
@@ -148,6 +152,79 @@ class LocalArtworkView extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Размытая обложка на фоне карточки или полноэкранного плеера.
+///
+/// Слой [BackdropFilter] размывает саму картинку, а градиентный оверлей
+/// делает поверхность достаточно тёмной для читаемого текста.
+class ArtworkBackdrop extends StatelessWidget {
+  final String? url;
+
+  final Widget child;
+
+  final double blur;
+
+  final Color? overlayColor;
+
+  final Gradient? gradient;
+
+  final BorderRadius? borderRadius;
+
+  const ArtworkBackdrop({
+    super.key,
+    required this.child,
+    this.url,
+    this.blur = 28,
+    this.overlayColor,
+    this.gradient,
+    this.borderRadius,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = borderRadius ?? BorderRadius.zero;
+    final disableAnimations = MediaQuery.maybeOf(context)?.disableAnimations;
+    final sigma = disableAnimations == true ? 0.0 : blur;
+
+    Widget background;
+    if (url == null || url!.isEmpty) {
+      background = const DecoratedBox(
+        decoration: BoxDecoration(gradient: AppColors.accentGradient),
+      );
+    } else {
+      background = CachedNetworkImage(
+        imageUrl: url!,
+        fit: BoxFit.cover,
+        memCacheWidth: 900,
+        memCacheHeight: 900,
+        fadeInDuration: const Duration(milliseconds: 240),
+        placeholder: (context, url) =>
+            const ColoredBox(color: AppColors.surface),
+        errorWidget: (context, url, error) =>
+            const ColoredBox(color: AppColors.surface),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: radius,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          background,
+          BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+            child: ColoredBox(
+              color: overlayColor ?? Colors.black.withValues(alpha: 0.38),
+            ),
+          ),
+          if (gradient != null)
+            DecoratedBox(decoration: BoxDecoration(gradient: gradient)),
+          child,
+        ],
+      ),
     );
   }
 }
