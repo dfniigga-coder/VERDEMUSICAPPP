@@ -707,8 +707,9 @@ class AudioPlayerHandler extends BaseAudioHandler
       } catch (_) {
         return false;
       }
-      if (index >= _tracks.length || _tracks[index].id != track.id)
+      if (index >= _tracks.length || _tracks[index].id != track.id) {
         return false;
+      }
     }
 
     if (index == current) {

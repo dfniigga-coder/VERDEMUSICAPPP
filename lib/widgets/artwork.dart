@@ -175,7 +175,7 @@ class ArtworkBackdrop extends StatelessWidget {
 
   const ArtworkBackdrop({
     super.key,
-    required this.child,
+    this.child = const SizedBox.shrink(),
     this.url,
     this.blur = 28,
     this.overlayColor,
