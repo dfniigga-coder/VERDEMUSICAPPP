@@ -43,10 +43,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view latest-apk >/dev/null 2>&1 \
-            || gh release create latest-apk \
-                 --target "$GITHUB_SHA" \
-                 --title "Verde — последняя сборка" \
-                 --notes "APK собран автоматически из коммита $GITHUB_SHA." \
-                 --latest
+          if gh release view latest-apk >/dev/null 2>&1; then
+            gh release edit latest-apk \
+              --target "$GITHUB_SHA" \
+              --title "Verde 2.0 — последняя сборка" \
+              --notes "APK собран автоматически из коммита $GITHUB_SHA." \
+              --latest
+          else
+            gh release create latest-apk \
+              --target "$GITHUB_SHA" \
+              --title "Verde 2.0 — последняя сборка" \
+              --notes "APK собран автоматически из коммита $GITHUB_SHA." \
+              --latest
+          fi
           gh release upload latest-apk build/app/outputs/flutter-apk/app-release.apk --clobber

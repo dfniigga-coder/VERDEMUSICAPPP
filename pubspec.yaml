@@ -1,7 +1,7 @@
 name: verde
 description: "Verde — музыкальный плеер в стиле Spotify: мультиисточниковый поиск, локальные треки, фоновое воспроизведение."
 publish_to: "none"
-version: 1.2.0+6
+version: 2.0.0+7
 
 environment:
   sdk: ">=3.10.0 <4.0.0"
